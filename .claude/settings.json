@@ -9,6 +9,12 @@
     ]
   },
 
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
+
+  "teammateMode": "in-process",
+
   "customInstructions": "CRITICAL: When hooks output 'INVOKE:agent-name', you MUST use Task(subagent_type='agent-name'). Never substitute. When hooks output 'LOAD:skill-name', read SKILL.md FIRST. See CLAUDE.md for full framework.",
 
   "hooks": {
