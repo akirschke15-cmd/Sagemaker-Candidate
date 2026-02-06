@@ -179,6 +179,11 @@ def premium_css() -> str:
         border-color: rgba(255, 255, 255, 0.15) !important;
     }
 
+    /* Hide Streamlit sidebar collapse arrow text */
+    [data-testid="collapsedControl"] {
+        display: none !important;
+    }
+
     /* ============================================ */
     /* TYPOGRAPHY                                  */
     /* ============================================ */
