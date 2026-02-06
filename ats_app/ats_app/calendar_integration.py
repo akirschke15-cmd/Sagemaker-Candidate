@@ -1,0 +1,477 @@
+"""
+Calendar Integration Module - ICS File Generation and Calendar Event Management
+Phase 1: ICS file generation for interview events
+Future Phases: Google Calendar OAuth, Microsoft 365 OAuth integration
+"""
+import uuid
+import logging
+from datetime import datetime, timedelta
+from typing import Dict, Optional, Tuple
+
+logger = logging.getLogger(__name__)
+
+# ICS file constants following RFC 5545 standard
+ICS_VERSION = "2.0"
+ICS_PRODID = "-//Agentic Program ATS//Interview Scheduling//EN"
+ICS_CALSCALE = "GREGORIAN"
+ICS_METHOD = "REQUEST"
+
+
+def escape_ics_text(text: str) -> str:
+    """
+    Escape special characters for ICS format per RFC 5545.
+    Escapes backslash, semicolon, comma, and converts newlines.
+    """
+    if not text:
+        return ""
+    # Order matters: escape backslash first
+    text = text.replace("\\", "\\\\")
+    text = text.replace(";", "\\;")
+    text = text.replace(",", "\\,")
+    # Convert newlines to escaped newlines for ICS
+    text = text.replace("\r\n", "\\n")
+    text = text.replace("\n", "\\n")
+    text = text.replace("\r", "\\n")
+    return text
+
+
+def fold_ics_line(line: str, max_length: int = 75) -> str:
+    """
+    Fold long lines per RFC 5545 (max 75 octets per line).
+    Continuation lines start with a space or tab.
+    """
+    if len(line.encode('utf-8')) <= max_length:
+        return line
+
+    result = []
+    current_line = ""
+
+    for char in line:
+        # Check if adding this char would exceed limit
+        test_line = current_line + char
+        if len(test_line.encode('utf-8')) > max_length:
+            result.append(current_line)
+            current_line = " " + char  # Continuation line starts with space
+        else:
+            current_line = test_line
+
+    if current_line:
+        result.append(current_line)
+
+    return "\r\n".join(result)
+
+
+def format_ics_datetime(dt: datetime) -> str:
+    """
+    Format datetime for ICS file in UTC format.
+    Returns format: YYYYMMDDTHHMMSSZ
+    """
+    # Convert to UTC format for ICS
+    return dt.strftime("%Y%m%dT%H%M%S")
+
+
+def format_ics_date(dt: datetime) -> str:
+    """
+    Format date for ICS file.
+    Returns format: YYYYMMDD
+    """
+    return dt.strftime("%Y%m%d")
+
+
+def generate_uid() -> str:
+    """
+    Generate a unique identifier for the calendar event.
+    Format: UUID@ats.agentic.program
+    """
+    return f"{uuid.uuid4()}@ats.agentic.program"
+
+
+def format_event_description(
+    candidate: Dict,
+    job: Dict,
+    stage: str,
+    prep_notes: Optional[str] = None,
+    previous_notes: Optional[str] = None
+) -> str:
+    """
+    Format a detailed description for the interview calendar event.
+    Includes candidate info, job details, interview prep, and previous notes.
+
+    Args:
+        candidate: Candidate data dictionary
+        job: Job data dictionary
+        stage: Interview stage (e.g., "Technical Interview")
+        prep_notes: AI-generated interview prep notes
+        previous_notes: Notes from previous interview stages
+
+    Returns:
+        Formatted description string for ICS
+    """
+    parts = []
+
+    # Header
+    parts.append(f"INTERVIEW: {stage}")
+    parts.append("=" * 40)
+    parts.append("")
+
+    # Candidate Information
+    parts.append("CANDIDATE INFORMATION")
+    parts.append("-" * 20)
+    parts.append(f"Name: {candidate.get('name', 'N/A')}")
+    if candidate.get('email'):
+        parts.append(f"Email: {candidate.get('email')}")
+    if candidate.get('phone'):
+        parts.append(f"Phone: {candidate.get('phone')}")
+    if candidate.get('vendor_name'):
+        parts.append(f"Vendor: {candidate.get('vendor_name')}")
+    parts.append("")
+
+    # Job Information
+    parts.append("POSITION")
+    parts.append("-" * 20)
+    parts.append(f"Title: {job.get('title', 'N/A')}")
+    if job.get('department'):
+        parts.append(f"Department: {job.get('department')}")
+    parts.append("")
+
+    # AI Resume Score if available
+    if candidate.get('ai_resume_score'):
+        parts.append("RESUME ASSESSMENT")
+        parts.append("-" * 20)
+        parts.append(f"AI Score: {candidate.get('ai_resume_score', 0):.0f}%")
+        if candidate.get('ai_resume_analysis'):
+            # Truncate analysis if too long
+            analysis = candidate['ai_resume_analysis']
+            if len(analysis) > 500:
+                analysis = analysis[:497] + "..."
+            parts.append(f"Analysis: {analysis}")
+        parts.append("")
+
+    # Interview Prep Notes
+    if prep_notes:
+        parts.append("INTERVIEW PREP NOTES")
+        parts.append("-" * 20)
+        parts.append(prep_notes)
+        parts.append("")
+
+    # Previous Interview Notes Summary
+    if previous_notes:
+        parts.append("PREVIOUS INTERVIEW NOTES")
+        parts.append("-" * 20)
+        parts.append(previous_notes)
+        parts.append("")
+
+    # Footer
+    parts.append("=" * 40)
+    parts.append("Generated by Agentic Program ATS")
+
+    return "\n".join(parts)
+
+
+def generate_ics_event(
+    interview: Dict,
+    candidate: Dict,
+    job: Dict,
+    duration_minutes: int = 60,
+    prep_notes: Optional[str] = None,
+    previous_notes: Optional[str] = None,
+    alarm_minutes: int = 15
+) -> Tuple[str, str]:
+    """
+    Generate a valid ICS file content for an interview event.
+    Follows RFC 5545 iCalendar specification for maximum compatibility.
+
+    Args:
+        interview: Interview data dictionary containing scheduled_time, stage, etc.
+        candidate: Candidate data dictionary
+        job: Job data dictionary
+        duration_minutes: Duration of the interview in minutes (default: 60)
+        prep_notes: Optional AI-generated interview prep notes
+        previous_notes: Optional summary of previous interview notes
+        alarm_minutes: Minutes before event to trigger reminder (default: 15)
+
+    Returns:
+        Tuple of (ics_content: str, uid: str)
+    """
+    # Parse scheduled time
+    scheduled_time_str = interview.get('scheduled_time', '')
+    if isinstance(scheduled_time_str, str):
+        # Handle various datetime formats
+        try:
+            if 'T' in scheduled_time_str:
+                start_dt = datetime.fromisoformat(scheduled_time_str.replace('Z', ''))
+            else:
+                start_dt = datetime.strptime(scheduled_time_str, "%Y-%m-%d %H:%M:%S")
+        except ValueError as e:
+            logger.warning(f"Failed to parse scheduled_time '{scheduled_time_str}': {e}. Using default time.")
+            # Fallback: use current time + 1 hour
+            start_dt = datetime.now() + timedelta(hours=1)
+    else:
+        start_dt = scheduled_time_str if scheduled_time_str else datetime.now() + timedelta(hours=1)
+
+    # Calculate end time
+    end_dt = start_dt + timedelta(minutes=duration_minutes)
+
+    # Generate unique ID
+    uid = generate_uid()
+
+    # Get current timestamp for DTSTAMP
+    now = datetime.utcnow()
+
+    # Build event title
+    stage = interview.get('stage', 'Interview')
+    candidate_name = candidate.get('name', 'Candidate')
+    job_title = job.get('title', 'Position')
+    summary = f"{stage}: {candidate_name} - {job_title}"
+
+    # Build location
+    location_parts = []
+    if interview.get('meeting_link'):
+        location_parts.append(interview['meeting_link'])
+    if interview.get('location'):
+        location_parts.append(interview['location'])
+    location = " | ".join(location_parts) if location_parts else "TBD"
+
+    # Build description
+    description = format_event_description(
+        candidate=candidate,
+        job=job,
+        stage=stage,
+        prep_notes=prep_notes,
+        previous_notes=previous_notes
+    )
+
+    # Build ICS content
+    ics_lines = [
+        "BEGIN:VCALENDAR",
+        f"VERSION:{ICS_VERSION}",
+        f"PRODID:{ICS_PRODID}",
+        f"CALSCALE:{ICS_CALSCALE}",
+        f"METHOD:{ICS_METHOD}",
+        "BEGIN:VEVENT",
+        f"UID:{uid}",
+        f"DTSTAMP:{format_ics_datetime(now)}",
+        f"DTSTART:{format_ics_datetime(start_dt)}",
+        f"DTEND:{format_ics_datetime(end_dt)}",
+        fold_ics_line(f"SUMMARY:{escape_ics_text(summary)}"),
+        fold_ics_line(f"DESCRIPTION:{escape_ics_text(description)}"),
+        fold_ics_line(f"LOCATION:{escape_ics_text(location)}"),
+        "STATUS:CONFIRMED",
+        "SEQUENCE:0",
+        f"TRANSP:OPAQUE",
+    ]
+
+    # Add organizer if interviewer email is available
+    if interview.get('interviewer_email'):
+        interviewer_name = interview.get('interviewer_name', '')
+        if interviewer_name:
+            ics_lines.append(fold_ics_line(
+                f"ORGANIZER;CN={escape_ics_text(interviewer_name)}:mailto:{interview['interviewer_email']}"
+            ))
+        else:
+            ics_lines.append(f"ORGANIZER:mailto:{interview['interviewer_email']}")
+
+    # Add attendee (candidate) if email available
+    if candidate.get('email'):
+        ics_lines.append(fold_ics_line(
+            f"ATTENDEE;CN={escape_ics_text(candidate.get('name', ''))};"
+            f"RSVP=TRUE;ROLE=REQ-PARTICIPANT:mailto:{candidate['email']}"
+        ))
+
+    # Add alarm/reminder
+    if alarm_minutes > 0:
+        ics_lines.extend([
+            "BEGIN:VALARM",
+            "TRIGGER:-PT{}M".format(alarm_minutes),
+            "ACTION:DISPLAY",
+            fold_ics_line(f"DESCRIPTION:Reminder: {escape_ics_text(summary)}"),
+            "END:VALARM",
+        ])
+
+    # Close event and calendar
+    ics_lines.extend([
+        "END:VEVENT",
+        "END:VCALENDAR",
+    ])
+
+    # Join with CRLF as per RFC 5545
+    ics_content = "\r\n".join(ics_lines) + "\r\n"
+
+    return ics_content, uid
+
+
+def generate_ics_filename(candidate_name: str, stage: str, scheduled_time: str) -> str:
+    """
+    Generate a clean filename for the ICS file.
+
+    Args:
+        candidate_name: Name of the candidate
+        stage: Interview stage
+        scheduled_time: Scheduled datetime string
+
+    Returns:
+        Clean filename string (e.g., "interview_john_doe_technical_20250130.ics")
+    """
+    # Clean candidate name
+    clean_name = "".join(c if c.isalnum() or c == ' ' else '' for c in candidate_name)
+    clean_name = clean_name.strip().replace(' ', '_').lower()
+
+    # Clean stage
+    clean_stage = "".join(c if c.isalnum() or c == ' ' else '' for c in stage)
+    clean_stage = clean_stage.strip().replace(' ', '_').lower()
+
+    # Extract date
+    try:
+        if 'T' in scheduled_time:
+            dt = datetime.fromisoformat(scheduled_time.replace('Z', ''))
+        else:
+            dt = datetime.strptime(scheduled_time, "%Y-%m-%d %H:%M:%S")
+        date_str = dt.strftime("%Y%m%d")
+    except (ValueError, TypeError) as e:
+        logger.warning(f"Failed to parse scheduled_time '{scheduled_time}' for filename: {e}. Using current date.")
+        date_str = datetime.now().strftime("%Y%m%d")
+
+    return f"interview_{clean_name}_{clean_stage}_{date_str}.ics"
+
+
+# ============ DATABASE OPERATIONS FOR CALENDAR INTEGRATION ============
+# These functions prepare the database for future OAuth integration
+
+def init_calendar_tables():
+    """
+    Initialize calendar integration tables in the database.
+    Called from database.py init_db or migrate_db.
+    """
+    from database import db_session
+
+    with db_session() as conn:
+        conn.executescript("""
+        -- Calendar integrations for OAuth providers (future use)
+        CREATE TABLE IF NOT EXISTS calendar_integrations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            provider TEXT NOT NULL,
+            calendar_id TEXT,
+            access_token TEXT,
+            refresh_token TEXT,
+            token_expires_at TIMESTAMP,
+            is_active INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- Calendar events tracking
+        CREATE TABLE IF NOT EXISTS calendar_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            interview_id INTEGER NOT NULL,
+            integration_id INTEGER,
+            external_event_id TEXT,
+            ics_uid TEXT,
+            status TEXT DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (interview_id) REFERENCES interviews(id) ON DELETE CASCADE,
+            FOREIGN KEY (integration_id) REFERENCES calendar_integrations(id) ON DELETE SET NULL
+        );
+
+        -- Index for quick lookups
+        CREATE INDEX IF NOT EXISTS idx_calendar_events_interview ON calendar_events(interview_id);
+        CREATE INDEX IF NOT EXISTS idx_calendar_events_ics_uid ON calendar_events(ics_uid);
+        """)
+
+
+def save_calendar_event(interview_id: int, ics_uid: str, integration_id: int = None,
+                        external_event_id: str = None) -> int:
+    """
+    Save a calendar event record to the database.
+
+    Args:
+        interview_id: ID of the associated interview
+        ics_uid: UID from the generated ICS file
+        integration_id: Optional ID of the calendar integration (for OAuth)
+        external_event_id: Optional external event ID (for Google/Outlook)
+
+    Returns:
+        ID of the created calendar event record
+    """
+    from database import db_session
+
+    with db_session() as conn:
+        cursor = conn.execute("""
+            INSERT INTO calendar_events (interview_id, integration_id, external_event_id, ics_uid)
+            VALUES (?, ?, ?, ?)
+        """, (interview_id, integration_id, external_event_id, ics_uid))
+        return cursor.lastrowid
+
+
+def get_calendar_event(interview_id: int) -> Optional[Dict]:
+    """
+    Get calendar event record for an interview.
+
+    Args:
+        interview_id: ID of the interview
+
+    Returns:
+        Calendar event record dict or None
+    """
+    from database import db_session
+
+    with db_session() as conn:
+        row = conn.execute("""
+            SELECT * FROM calendar_events WHERE interview_id = ? ORDER BY created_at DESC LIMIT 1
+        """, (interview_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def update_calendar_event_status(event_id: int, status: str):
+    """
+    Update the status of a calendar event.
+
+    Args:
+        event_id: ID of the calendar event record
+        status: New status (e.g., 'active', 'cancelled', 'updated')
+    """
+    from database import db_session
+
+    with db_session() as conn:
+        conn.execute("""
+            UPDATE calendar_events SET status = ? WHERE id = ?
+        """, (status, event_id))
+
+
+# ============ FUTURE OAUTH INTEGRATION STUBS ============
+# These are placeholder functions for future Google/Outlook OAuth integration
+
+def get_google_calendar_auth_url() -> str:
+    """
+    Get Google Calendar OAuth authorization URL.
+    Phase 2 implementation.
+    """
+    raise NotImplementedError("Google Calendar OAuth not yet implemented. Use ICS download for now.")
+
+
+def get_outlook_calendar_auth_url() -> str:
+    """
+    Get Microsoft 365 OAuth authorization URL.
+    Phase 3 implementation.
+    """
+    raise NotImplementedError("Microsoft 365 OAuth not yet implemented. Use ICS download for now.")
+
+
+def create_google_calendar_event(interview: Dict, candidate: Dict, job: Dict) -> str:
+    """
+    Create an event in Google Calendar via API.
+    Phase 2 implementation.
+
+    Returns:
+        External event ID from Google Calendar
+    """
+    raise NotImplementedError("Google Calendar API integration not yet implemented.")
+
+
+def create_outlook_calendar_event(interview: Dict, candidate: Dict, job: Dict) -> str:
+    """
+    Create an event in Microsoft 365 Outlook Calendar via API.
+    Phase 3 implementation.
+
+    Returns:
+        External event ID from Microsoft Graph API
+    """
+    raise NotImplementedError("Microsoft 365 API integration not yet implemented.")

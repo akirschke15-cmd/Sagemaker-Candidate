@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install:*)",
+      "Bash(python -m streamlit:*)",
+      "Bash(python:*)",
+      "Bash(wc:*)",
+      "Bash(streamlit run:*)",
+      "Bash(start http://localhost:8501)",
+      "Bash(start \"\" \"C:\\\\Users\\\\Akirs\\\\Sagemaker-Candidate\\\\ats_app\\\\docs\\\\Executive_Summary.md\")",
+      "Bash(start \"\" \"C:\\\\Users\\\\Akirs\\\\Sagemaker-Candidate\\\\ats_app\\\\docs\\\\Agentic_Program_ATS_Presentation.pptx\")",
+      "Bash(dir:*)",
+      "Bash(ls:*)",
+      "Bash(copy /Y \"C:\\\\Users\\\\Akirs\\\\Downloads\\\\framework-3.0_3\\\\.claude\\\\agents\\\\_registry.json\" \"C:\\\\Users\\\\Akirs\\\\Sagemaker-Candidate\\\\.claude\\\\agents\\\\_registry.json\")",
+      "Bash(powershell -ExecutionPolicy Bypass -File \"C:/Users/Akirs/Sagemaker-Candidate/.vscode/tasks.json\")",
+      "Bash(powershell:*)",
+      "Bash(echo:*)",
+      "WebSearch",
+      "Bash(copy:*)",
+      "Bash(Get-FileHash \"C:\\\\Users\\\\Akirs\\\\Downloads\\\\framework-3.0_3\\\\.claude\\\\hooks\\\\agent-router.ps1\" -Algorithm MD5)",
+      "Bash(Select-Object Hash)",
+      "Bash(Get-FileHash \"C:\\\\Users\\\\Akirs\\\\Sagemaker-Candidate\\\\.claude\\\\hooks\\\\agent-router.ps1\" -Algorithm MD5)",
+      "Bash(Remove-Item \"C:\\\\Users\\\\Akirs\\\\Sagemaker-Candidate\\\\test-hooks.ps1\" -Force)",
+      "Bash(printf:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}

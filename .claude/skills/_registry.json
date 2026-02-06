@@ -1,0 +1,45 @@
+{
+  "version": "3.0",
+  "skills": [
+    {
+      "name": "python-development",
+      "path": "python-development/SKILL.md",
+      "description": "Python patterns, FastAPI, Django, pytest",
+      "triggers": {
+        "filePatterns": ["*.py", "requirements.txt", "pyproject.toml"],
+        "keywords": ["python", "django", "fastapi", "flask", "pytest"]
+      }
+    },
+    {
+      "name": "typescript-development",
+      "path": "typescript-development/SKILL.md",
+      "description": "TypeScript patterns, React, Next.js, Node",
+      "triggers": {
+        "filePatterns": ["*.ts", "*.tsx", "package.json", "tsconfig.json"],
+        "keywords": ["typescript", "react", "nextjs", "node", "express"]
+      }
+    },
+    {
+      "name": "terraform-infrastructure",
+      "path": "terraform-infrastructure/SKILL.md",
+      "description": "Terraform patterns, AWS, Azure, GCP",
+      "triggers": {
+        "filePatterns": ["*.tf", "*.tfvars"],
+        "keywords": ["terraform", "infrastructure", "aws", "azure", "gcp"]
+      }
+    },
+    {
+      "name": "testing-best-practices",
+      "path": "testing-best-practices/SKILL.md",
+      "description": "Testing patterns, pytest, vitest, jest",
+      "triggers": {
+        "filePatterns": ["*test*.py", "*test*.ts", "*spec*.ts"],
+        "keywords": ["test", "testing", "coverage", "jest", "pytest", "vitest"]
+      }
+    }
+  ],
+  "globalSettings": {
+    "maxActiveSkills": 2,
+    "lazyLoad": true
+  }
+}

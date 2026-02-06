@@ -1,0 +1,18 @@
+# Test Dependencies for ATS Application
+# Install with: pip install -r requirements-test.txt
+
+# Core testing framework
+pytest>=7.4.0
+pytest-cov>=4.1.0          # Coverage reporting
+pytest-mock>=3.11.1         # Enhanced mocking
+
+# Testing utilities
+pytest-timeout>=2.1.0       # Timeout for long-running tests
+pytest-xdist>=3.3.1         # Parallel test execution (optional)
+
+# Code quality
+pytest-pylint>=0.19.0       # Pylint integration (optional)
+pytest-flake8>=1.1.1        # Flake8 integration (optional)
+
+# Note: Main application dependencies should be in requirements.txt
+# These are additional dependencies specifically for testing

@@ -1,0 +1,118 @@
+{
+  "customInstructions": "CRITICAL: When hooks output 'INVOKE:agent-name', you MUST use Task(subagent_type='agent-name'). Never substitute. When hooks output 'LOAD:skill-name', read SKILL.md FIRST. See CLAUDE.md for full framework.",
+  
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -NoProfile -File .claude/hooks/agent-router.ps1"
+          },
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -NoProfile -File .claude/hooks/skill-router.ps1"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -NoProfile -File .claude/hooks/conformance-gate.ps1"
+          }
+        ]
+      },
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -NoProfile -File .claude/hooks/token-tracker.ps1"
+          }
+        ]
+      }
+    ]
+  },
+
+  "agents": {
+    "searchPaths": [
+      ".claude/agents"
+    ],
+    "autoSuggest": true
+  },
+
+  "skills": {
+    "enabled": true,
+    "autoActivate": true,
+    "maxActive": 2,
+    "permissions": {
+      "python-development": {
+        "autoLoad": true,
+        "allowedPaths": ["**/*.py", "**/pyproject.toml", "**/requirements.txt"]
+      },
+      "typescript-development": {
+        "autoLoad": true,
+        "allowedPaths": ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "**/package.json"]
+      },
+      "terraform-infrastructure": {
+        "autoLoad": true,
+        "allowedPaths": ["**/*.tf", "**/*.tfvars"]
+      },
+      "testing-best-practices": {
+        "autoLoad": true,
+        "allowedPaths": ["**/*test*", "**/*spec*"]
+      }
+    }
+  },
+
+  "codeReview": {
+    "enabled": true,
+    "autoTrigger": true,
+    "checklist": [
+      "Requirement conformance (all acceptance criteria met)",
+      "No mock data in production code",
+      "Real API integration (no stubs)",
+      "Error handling complete",
+      "Type safety verified"
+    ]
+  },
+
+  "testing": {
+    "autoRunOnSave": true,
+    "frameworks": {
+      "python": "pytest",
+      "typescript": "vitest",
+      "javascript": "jest"
+    }
+  },
+
+  "formatting": {
+    "autoFormatOnSave": true,
+    "tools": {
+      "python": "ruff",
+      "typescript": "prettier",
+      "javascript": "prettier"
+    }
+  },
+
+  "projectPreferences": {
+    "enabled": true,
+    "requirementConformance": {
+      "enforceCompletionChecklist": true,
+      "preventWireframeImplementations": true,
+      "requireVerticalSlices": true,
+      "mandatoryTodoTracking": true
+    }
+  },
+
+  "tokenOptimization": {
+    "lazyLoadAgents": true,
+    "lazyLoadSkills": true,
+    "maxSkillsPerSession": null,
+    "compactHookOutput": true
+  }
+}

@@ -1,0 +1,130 @@
+{
+  "agents": [
+    {
+      "name": "product-manager",
+      "file": "00-product/product-manager.md",
+      "description": "Requirements analysis, user stories, acceptance criteria, PRD creation",
+      "phase": "requirements",
+      "priority": "critical"
+    },
+    {
+      "name": "system-architect",
+      "file": "03-architecture/system-architect.md",
+      "description": "System design, architecture decisions, trade-offs",
+      "phase": "design",
+      "priority": "critical"
+    },
+    {
+      "name": "api-designer",
+      "file": "03-architecture/api-designer.md",
+      "description": "RESTful/GraphQL API design, versioning, documentation",
+      "phase": "design",
+      "priority": "high"
+    },
+    {
+      "name": "ui-designer",
+      "file": "03-architecture/ui-designer.md",
+      "description": "UI/UX design, design systems, accessibility, responsive design",
+      "phase": "design",
+      "priority": "high"
+    },
+    {
+      "name": "frontend-engineer",
+      "file": "02-role-specialists/frontend-engineer.md",
+      "description": "UI/UX patterns, React, accessibility, responsive design",
+      "phase": "implementation",
+      "priority": "high"
+    },
+    {
+      "name": "backend-engineer",
+      "file": "02-role-specialists/backend-engineer.md",
+      "description": "Service architecture, APIs, databases, scalability",
+      "phase": "implementation",
+      "priority": "high"
+    },
+    {
+      "name": "fullstack-engineer",
+      "file": "02-role-specialists/fullstack-engineer.md",
+      "description": "Full-stack development combining frontend and backend",
+      "phase": "implementation",
+      "priority": "high"
+    },
+    {
+      "name": "python-expert",
+      "file": "01-language-specialists/python-expert.md",
+      "description": "Python frameworks, async patterns, testing",
+      "phase": "implementation",
+      "priority": "high"
+    },
+    {
+      "name": "typescript-expert",
+      "file": "01-language-specialists/typescript-expert.md",
+      "description": "TypeScript, React, Next.js patterns",
+      "phase": "implementation",
+      "priority": "high"
+    },
+    {
+      "name": "terraform-expert",
+      "file": "01-language-specialists/terraform-expert.md",
+      "description": "Infrastructure as code, multi-cloud patterns",
+      "phase": "implementation",
+      "priority": "high"
+    },
+    {
+      "name": "test-architect",
+      "file": "04-quality/test-architect.md",
+      "description": "Test strategy design, test architecture, testing approach optimization",
+      "phase": "testing",
+      "priority": "critical"
+    },
+    {
+      "name": "qa-engineer",
+      "file": "04-quality/qa-engineer.md",
+      "description": "Test execution, test case implementation, acceptance criteria validation",
+      "phase": "testing",
+      "priority": "high"
+    },
+    {
+      "name": "code-reviewer",
+      "file": "04-quality/code-reviewer.md",
+      "description": "Code quality, security vulnerabilities, best practices",
+      "phase": "review",
+      "priority": "critical"
+    },
+    {
+      "name": "security-auditor",
+      "file": "04-quality/security-auditor.md",
+      "description": "Security audits, OWASP Top 10, vulnerability scanning",
+      "phase": "review",
+      "priority": "critical"
+    },
+    {
+      "name": "devops-engineer",
+      "file": "05-infrastructure/devops-engineer.md",
+      "description": "CI/CD pipelines, deployment strategies, infrastructure automation",
+      "phase": "deployment",
+      "priority": "high"
+    },
+    {
+      "name": "technical-writer",
+      "file": "06-documentation/technical-writer.md",
+      "description": "Technical writing, API docs, architecture diagrams",
+      "phase": "documentation",
+      "priority": "medium"
+    },
+    {
+      "name": "debugger",
+      "file": "07-troubleshooting/debugger.md",
+      "description": "Debugging strategies, root cause analysis",
+      "phase": "troubleshooting",
+      "priority": "high"
+    },
+    {
+      "name": "performance-optimizer",
+      "file": "07-troubleshooting/performance-optimizer.md",
+      "description": "Performance tuning, profiling, bottleneck analysis",
+      "phase": "troubleshooting",
+      "priority": "high"
+    }
+  ]
+}

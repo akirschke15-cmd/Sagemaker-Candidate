@@ -1,0 +1,41 @@
+{
+  "customInstructions": "CRITICAL: When hooks output 'INVOKE:agent-name', you MUST use Task(subagent_type='agent-name'). Never substitute. When hooks output 'LOAD:skill-name', read SKILL.md FIRST. See CLAUDE.md for full framework.",
+
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -NoProfile -File \"C:/Users/Akirs/Sagemaker-Candidate/.claude/hooks/agent-router.ps1\""
+          },
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -NoProfile -File \"C:/Users/Akirs/Sagemaker-Candidate/.claude/hooks/skill-router.ps1\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|Create",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -NoProfile -File \"C:/Users/Akirs/Sagemaker-Candidate/.claude/hooks/conformance-gate.ps1\""
+          }
+        ]
+      },
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -NoProfile -File \"C:/Users/Akirs/Sagemaker-Candidate/.claude/hooks/token-tracker.ps1\""
+          }
+        ]
+      }
+    ]
+  }
+}

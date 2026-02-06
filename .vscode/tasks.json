@@ -1,0 +1,81 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Claude: Validate Framework",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy", "Bypass",
+        "-Command",
+        "Write-Host '=== Framework Validation ===' -ForegroundColor Cyan; $hooks = @('.claude/hooks/agent-router.ps1', '.claude/hooks/skill-router.ps1', '.claude/hooks/conformance-gate.ps1', '.claude/hooks/token-tracker.ps1'); $allGood = $true; foreach ($h in $hooks) { if (Test-Path $h) { Write-Host \"✓ $h\" -ForegroundColor Green } else { Write-Host \"✗ $h MISSING\" -ForegroundColor Red; $allGood = $false } }; if (Test-Path '.claude/settings.json') { Write-Host '✓ settings.json' -ForegroundColor Green } else { Write-Host '✗ settings.json MISSING' -ForegroundColor Red; $allGood = $false }; if (Test-Path 'CLAUDE.md') { Write-Host '✓ CLAUDE.md' -ForegroundColor Green } else { Write-Host '✗ CLAUDE.md MISSING' -ForegroundColor Red; $allGood = $false }; if ($allGood) { Write-Host ''; Write-Host '=== Framework Ready ===' -ForegroundColor Green } else { Write-Host ''; Write-Host '=== Framework Incomplete ===' -ForegroundColor Red }"
+      ],
+      "problemMatcher": [],
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "Claude: Test Agent Router",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy", "Bypass",
+        "-Command",
+        "$prompts = @('build a React component', 'write tests for the API', 'debug this error', 'create user authentication', 'design system architecture'); Write-Host '=== Agent Router Test ===' -ForegroundColor Cyan; foreach ($p in $prompts) { Write-Host \"`nPrompt: $p\" -ForegroundColor Yellow; $p | & '.claude/hooks/agent-router.ps1' }"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "Claude: Test Skill Router",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy", "Bypass",
+        "-Command",
+        "Write-Host '=== Skill Router Test (based on current files) ===' -ForegroundColor Cyan; 'analyzing project' | & '.claude/hooks/skill-router.ps1'"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "Claude: View Session Stats",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy", "Bypass",
+        "-Command",
+        "Write-Host '=== Session Statistics ===' -ForegroundColor Cyan; if (Test-Path '.claude/logs') { $files = Get-ChildItem '.claude/logs' -Filter '*.log'; foreach ($f in $files) { Write-Host \"`n$($f.Name):\" -ForegroundColor Yellow; Get-Content $f.FullName | Select-Object -Last 20 } } else { Write-Host 'No logs found' -ForegroundColor Gray }"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "Claude: Clear Session",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy", "Bypass",
+        "-Command",
+        "Write-Host '=== Clearing Session ===' -ForegroundColor Cyan; Remove-Item '.claude/.session-reminders' -Force -ErrorAction SilentlyContinue; Remove-Item '.claude/logs/.session-stats' -Force -ErrorAction SilentlyContinue; Write-Host 'Session cleared' -ForegroundColor Green"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    }
+  ]
+}
