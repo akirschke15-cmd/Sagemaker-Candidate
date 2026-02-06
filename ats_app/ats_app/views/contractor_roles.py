@@ -9,31 +9,30 @@ from database import (
     get_contracts
 )
 from auth import has_permission, get_current_user
-from views.utils import safe
+from views.utils import safe, section_header, kpi_row, metric_card, status_badge, progress_bar_html, empty_state
 
 
 def render_contractor_roles():
     """Render contractor roles management page"""
-    st.title("💰 Contractor Roles")
+    st.markdown(section_header("Contractor Roles", "Manage roles and rate ranges"), unsafe_allow_html=True)
 
     current_user = get_current_user()
     if not current_user:
         st.error("Please log in to access this page")
         return
 
-    # Summary metrics
+    # Summary metrics - Premium KPI Row
     all_roles = get_contractor_roles(active_only=False)
     active_roles = [r for r in all_roles if r.get('is_active', 1)]
+    jobs_with_roles = sum(1 for role in active_roles if get_jobs_by_contractor_role(role['id']))
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Total Roles", len(all_roles))
-    with col2:
-        st.metric("Active Roles", len(active_roles))
-    with col3:
-        # Count jobs using contractor roles
-        jobs_with_roles = sum(1 for role in active_roles if get_jobs_by_contractor_role(role['id']))
-        st.metric("Roles in Use", jobs_with_roles)
+    kpi_items = [
+        {"label": "Total Roles", "value": len(all_roles), "icon": "&#128188;", "color": "#304CB2"},
+        {"label": "Active Roles", "value": len(active_roles), "icon": "&#9989;", "color": "#2EA043"},
+        {"label": "Roles in Use", "value": jobs_with_roles, "icon": "&#128188;", "color": "#F9B612"}
+    ]
+
+    st.markdown(kpi_row(kpi_items), unsafe_allow_html=True)
 
     st.divider()
 
@@ -91,7 +90,7 @@ def render_contractor_roles():
         roles_to_display = sorted(roles_to_display, key=lambda x: x.get('max_hourly_rate', 0), reverse=True)
 
     if not roles_to_display:
-        st.info("No contractor roles found")
+        st.markdown(empty_state("No contractor roles found", "Create your first role above"), unsafe_allow_html=True)
     else:
         for role in roles_to_display:
             render_contractor_role_card(role)
@@ -101,39 +100,63 @@ def render_contractor_role_card(role: dict):
     """Render a single contractor role card with details and actions"""
     is_active = role.get('is_active', 1)
 
+    # Get jobs using this role
+    jobs = get_jobs_by_contractor_role(role['id'])
+
+    # Show active contracts for this role
+    all_contracts = get_contracts(status='active')
+    role_contracts = []
+    for contract in all_contracts:
+        if contract.get('job_id'):
+            job = next((j for j in jobs if j['id'] == contract['job_id']), None)
+            if job:
+                role_contracts.append(contract)
+
+    status_color = "#2EA043" if is_active else "#6E7681"
+    status_text = "Active" if is_active else "Inactive"
+
+    # Premium role card
+    card_html = f"""
+    <div style="background: linear-gradient(135deg, #1A2332 0%, #0F1419 100%);
+                border: 1px solid rgba(48, 76, 178, 0.2);
+                border-radius: 12px;
+                padding: 24px;
+                margin-bottom: 16px;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 16px;">
+            <div style="flex: 1;">
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                    <h3 style="margin: 0; color: #FFFFFF; font-size: 20px; font-weight: 600;">
+                        {safe(role['name'])}
+                    </h3>
+                    {status_badge(status_text, status_color)}
+                </div>
+                {f'<p style="margin: 0; color: #8B949E; font-size: 14px;">{safe(role.get("description"))}</p>' if role.get('description') else ''}
+            </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px;">
+            <div>
+                <div style="color: #8B949E; font-size: 12px; margin-bottom: 4px;">RATE RANGE</div>
+                <div style="color: #2EA043; font-size: 18px; font-weight: 600;">
+                    {f'${role["min_hourly_rate"]:.0f} - ${role["max_hourly_rate"]:.0f}/hr' if role.get('min_hourly_rate') and role.get('max_hourly_rate') else 'Not set'}
+                </div>
+            </div>
+            <div>
+                <div style="color: #8B949E; font-size: 12px; margin-bottom: 4px;">JOBS USING ROLE</div>
+                <div style="color: #FFFFFF; font-size: 18px; font-weight: 600;">{len(jobs)}</div>
+            </div>
+            <div>
+                <div style="color: #8B949E; font-size: 12px; margin-bottom: 4px;">ACTIVE CONTRACTS</div>
+                <div style="color: #FFFFFF; font-size: 18px; font-weight: 600;">{len(role_contracts)}</div>
+            </div>
+        </div>
+    </div>
+    """
+
+    st.markdown(card_html, unsafe_allow_html=True)
+
     with st.container():
         col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
-
-        with col1:
-            status_badge = "🟢" if is_active else "🔴"
-            st.markdown(f"### {status_badge} {safe(role['name'])}")
-            if role.get('description'):
-                st.caption(role['description'])
-
-        with col2:
-            st.markdown("**Rate Range**")
-            if role.get('min_hourly_rate') and role.get('max_hourly_rate'):
-                st.markdown(f"${role['min_hourly_rate']:.0f} - ${role['max_hourly_rate']:.0f}/hr")
-            else:
-                st.caption("No rate range set")
-
-        with col3:
-            # Show jobs using this role
-            jobs = get_jobs_by_contractor_role(role['id'])
-            st.metric("Jobs Using Role", len(jobs))
-
-            # Show active contracts for this role
-            all_contracts = get_contracts(status='active')
-            role_contracts = []
-            for contract in all_contracts:
-                if contract.get('job_id'):
-                    # Check if job uses this role
-                    job = next((j for j in jobs if j['id'] == contract['job_id']), None)
-                    if job:
-                        role_contracts.append(contract)
-
-            if role_contracts:
-                st.caption(f"{len(role_contracts)} active contracts")
 
         with col4:
             if has_permission('jobs', 'edit'):
@@ -254,20 +277,23 @@ def render_rate_compliance_for_role(role: dict, jobs: list):
     above_max = [r for r in rates if r > role['max_hourly_rate']]
     in_range = [r for r in rates if role['min_hourly_rate'] <= r <= role['max_hourly_rate']]
 
+    # Compliance visualization
+    total_rates = len(rates)
+    compliance_percent = (len(in_range) / total_rates * 100) if total_rates > 0 else 0
+
+    st.markdown(progress_bar_html(compliance_percent, 100, "#2EA043", "8px", True), unsafe_allow_html=True)
+
     col1, col2, col3 = st.columns(3)
     with col1:
-        if below_min:
-            st.warning(f"⚠️ {len(below_min)} below minimum")
-        else:
-            st.success("✅ None below minimum")
+        badge_color = "#C8102E" if below_min else "#2EA043"
+        badge_text = f"{len(below_min)} below minimum" if below_min else "None below minimum"
+        st.markdown(status_badge(badge_text, badge_color), unsafe_allow_html=True)
     with col2:
-        if in_range:
-            st.success(f"✅ {len(in_range)} in range")
+        st.markdown(status_badge(f"{len(in_range)} in range", "#2EA043"), unsafe_allow_html=True)
     with col3:
-        if above_max:
-            st.warning(f"⚠️ {len(above_max)} above maximum")
-        else:
-            st.success("✅ None above maximum")
+        badge_color = "#C8102E" if above_max else "#2EA043"
+        badge_text = f"{len(above_max)} above maximum" if above_max else "None above maximum"
+        st.markdown(status_badge(badge_text, badge_color), unsafe_allow_html=True)
 
     # Show out-of-range contracts
     if below_min or above_max:

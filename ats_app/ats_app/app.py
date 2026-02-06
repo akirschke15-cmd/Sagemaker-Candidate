@@ -170,87 +170,9 @@ st.set_page_config(
 query_params = st.query_params
 scorecard_token = query_params.get("token", None)
 
-# Custom CSS - Southwest Airlines Color Theme
-# Primary: #C8102E (Red), #304CB2 (Blue), #F9B612 (Yellow/Gold)
-st.markdown("""
-<style>
-    /* Global accent colors */
-    :root {
-        --sw-red: #C8102E;
-        --sw-blue: #304CB2;
-        --sw-yellow: #F9B612;
-        --sw-red-light: #FADBD8;
-        --sw-blue-light: #D6E4F0;
-        --sw-yellow-light: #FEF5D4;
-    }
-
-    /* Sidebar styling */
-    [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #304CB2 0%, #1a2d6b 100%);
-    }
-    [data-testid="stSidebar"] * {
-        color: white !important;
-    }
-    [data-testid="stSidebar"] button {
-        background-color: rgba(255,255,255,0.1) !important;
-        border: 1px solid rgba(255,255,255,0.2) !important;
-        transition: all 0.2s ease;
-    }
-    [data-testid="stSidebar"] button:hover {
-        background-color: #F9B612 !important;
-        color: #304CB2 !important;
-        border-color: #F9B612 !important;
-    }
-
-    /* Tab styling */
-    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
-    .stTabs [data-baseweb="tab"] { padding: 8px 16px; }
-    .stTabs [data-baseweb="tab-highlight"] { background-color: #C8102E !important; }
-
-    /* Metric cards */
-    .metric-card { background: #D6E4F0; padding: 16px; border-radius: 8px; margin: 8px 0; border-left: 4px solid #304CB2; }
-
-    /* Stage badges - Southwest themed progression */
-    .stage-badge { display: inline-block; padding: 4px 12px; border-radius: 16px; font-size: 12px; font-weight: 600; }
-    .stage-resume { background: #D6E4F0; color: #304CB2; }
-    .stage-phone { background: #E8EAF6; color: #3949AB; }
-    .stage-technical { background: #FEF5D4; color: #B8860B; }
-    .stage-behavioral { background: #FFF3E0; color: #E65100; }
-    .stage-offer { background: #FEF5D4; color: #C8102E; }
-    .stage-hired { background: #C8E6C9; color: #2E7D32; }
-    .stage-rejected { background: #FADBD8; color: #C8102E; }
-
-    /* Primary buttons */
-    .stButton > button[kind="primary"] {
-        background-color: #C8102E !important;
-        border-color: #C8102E !important;
-    }
-    .stButton > button[kind="primary"]:hover {
-        background-color: #a00d24 !important;
-        border-color: #a00d24 !important;
-    }
-
-    /* Headers */
-    h1, h2, h3 { color: #304CB2 !important; }
-
-    /* Success/warning/error alerts aligned with brand */
-    .stAlert [data-baseweb="notification"] { border-radius: 8px; }
-
-    /* Softer dark background for main content */
-    .stApp, [data-testid="stAppViewContainer"] {
-        background-color: #1E2A3A !important;
-    }
-    .stMain, [data-testid="stMain"] {
-        background-color: #1E2A3A !important;
-    }
-    section[data-testid="stSidebar"] + div {
-        background-color: #1E2A3A !important;
-    }
-    [data-testid="stHeader"] {
-        background-color: #1E2A3A !important;
-    }
-</style>
-""", unsafe_allow_html=True)
+# Apply premium dark SaaS CSS theme
+from views.utils import premium_css
+st.markdown(premium_css(), unsafe_allow_html=True)
 
 # Session state init
 if 'current_view' not in st.session_state:

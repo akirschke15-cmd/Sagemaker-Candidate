@@ -4,12 +4,12 @@ Vendors view - Simple CRUD for vendor management
 import streamlit as st
 from database import get_vendors, create_vendor, get_vendor, get_candidates
 from auth import has_permission, get_current_user
-from views.utils import safe
+from views.utils import safe, section_header, kpi_row, avatar_badge, metric_card, empty_state
 
 
 def render_vendors():
     """Render vendor management page"""
-    st.title("🏢 Vendors")
+    st.markdown(section_header("Vendors", "Staffing agency management"), unsafe_allow_html=True)
 
     current_user = get_current_user()
     if not current_user:
@@ -19,15 +19,16 @@ def render_vendors():
     # Get all vendors
     vendors = get_vendors()
 
-    # Summary metrics
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("Total Vendors", len(vendors))
-    with col2:
-        # Count total candidates from all vendors
-        all_candidates = get_candidates()
-        vendor_candidates = [c for c in all_candidates if c.get('vendor_id')]
-        st.metric("Total Vendor Candidates", len(vendor_candidates))
+    # OPTIMIZATION: Fetch all candidates once at the top level to avoid N+1 queries
+    all_candidates = get_candidates()
+    vendor_candidates = [c for c in all_candidates if c.get('vendor_id')]
+
+    kpi_items = [
+        {"label": "Total Vendors", "value": len(vendors), "icon": "&#127970;", "color": "#304CB2"},
+        {"label": "Total Candidates", "value": len(vendor_candidates), "icon": "&#128100;", "color": "#2EA043"}
+    ]
+
+    st.markdown(kpi_row(kpi_items), unsafe_allow_html=True)
 
     st.divider()
 
@@ -64,7 +65,7 @@ def render_vendors():
     st.subheader("All Vendors")
 
     if not vendors:
-        st.info("No vendors found. Add your first vendor using the form above.")
+        st.markdown(empty_state("No vendors found", "Add your first vendor using the form above", "&#127970;"), unsafe_allow_html=True)
     else:
         # Sort vendors by name
         vendors = sorted(vendors, key=lambda x: x['name'])
@@ -80,34 +81,55 @@ def render_vendors():
         if not vendors:
             st.warning(f"No vendors found matching '{search}'")
         else:
-            # Display vendors as cards
+            # Display vendors as cards - pass all_candidates to avoid re-fetching
             for vendor in vendors:
-                render_vendor_card(vendor)
+                render_vendor_card(vendor, all_candidates)
 
 
-def render_vendor_card(vendor: dict):
+def render_vendor_card(vendor: dict, all_candidates: list):
     """Render a single vendor card with details"""
-    # Count candidates from this vendor
-    all_candidates = get_candidates()
+    # OPTIMIZATION: Use pre-fetched candidates instead of calling get_candidates() again
     vendor_candidates = [c for c in all_candidates if c.get('vendor_id') == vendor['id']]
+    active = len([c for c in vendor_candidates if c.get('status') == 'Active'])
+
+    # Premium vendor card
+    contact_info = ""
+    if vendor.get('contact_email'):
+        contact_info += f"<div style='color: #8B949E; font-size: 14px; margin-bottom: 4px;'>&#128231; {safe(vendor.get('contact_email'))}</div>"
+    if vendor.get('contact_phone'):
+        contact_info += f"<div style='color: #8B949E; font-size: 14px;'>&#128222; {safe(vendor.get('contact_phone'))}</div>"
+
+    card_html = f"""
+    <div style="background: linear-gradient(135deg, #1A2332 0%, #0F1419 100%);
+                border: 1px solid rgba(48, 76, 178, 0.2);
+                border-radius: 12px;
+                padding: 24px;
+                margin-bottom: 16px;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+        <div style="display: flex; justify-content: space-between; align-items: start;">
+            <div style="flex: 1;">
+                {avatar_badge(safe(vendor['name']), f"{len(vendor_candidates)} total candidates • {active} active", size='lg')}
+                <div style="margin-top: 12px;">
+                    {contact_info}
+                </div>
+            </div>
+            <div>
+                {metric_card("Candidates", len(vendor_candidates), delta=f"{active} active" if active > 0 else None, icon="&#128100;", color="#304CB2")}
+            </div>
+        </div>
+    </div>
+    """
+
+    st.markdown(card_html, unsafe_allow_html=True)
 
     with st.container():
         col1, col2, col3 = st.columns([3, 2, 1])
 
         with col1:
-            st.markdown(f"### 🏢 {safe(vendor['name'])}")
-            if vendor.get('contact_email'):
-                st.caption(f"📧 {safe(vendor['contact_email'])}")
-            if vendor.get('contact_phone'):
-                st.caption(f"📞 {safe(vendor['contact_phone'])}")
+            pass  # Spacer
 
         with col2:
-            st.metric("Candidates", len(vendor_candidates))
-
-            # Show active vs inactive candidates
-            active = len([c for c in vendor_candidates if c.get('status') == 'Active'])
-            if active > 0:
-                st.caption(f"{active} active")
+            pass  # Spacer
 
         with col3:
             if st.button("View Details", key=f"view_vendor_{vendor['id']}", use_container_width=True):

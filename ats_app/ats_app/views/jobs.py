@@ -14,12 +14,15 @@ from auth import (
     has_permission, can_access_job, get_visible_job_ids,
     get_current_user, get_role_display_name
 )
-from views.utils import get_stage_color, safe
+from views.utils import (
+    get_stage_color, safe, section_header, metric_card, status_badge,
+    avatar_badge, empty_state
+)
 
 
 def render_jobs():
     """Render jobs management page with RBAC"""
-    st.title("💼 Jobs Management")
+    st.markdown(section_header("Jobs Management", "Create and manage open positions"), unsafe_allow_html=True)
 
     current_user = get_current_user()
     if not current_user:
@@ -107,37 +110,57 @@ def render_jobs():
         filtered_jobs = sorted(filtered_jobs, key=lambda x: x.get('created_at', ''), reverse=True)
 
     if not filtered_jobs:
-        st.info("No jobs found matching the filters")
+        st.markdown(empty_state("No jobs found matching the filters", "Try adjusting your filters"), unsafe_allow_html=True)
     else:
-        # Display jobs as cards
+        # Display jobs as premium cards
         for job in filtered_jobs:
-            with st.container():
-                col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
+            status_colors = {"Open": "#2EA043", "Closed": "#C8102E", "On Hold": "#F9B612"}
+            status_color = status_colors.get(job['status'], '#6E7681')
 
-                with col1:
-                    st.markdown(f"### {job['title']}")
-                    if job.get('department'):
-                        st.caption(f"📁 {job['department']}")
+            card_html = f"""
+            <div style="background: linear-gradient(135deg, #1A2332 0%, #0F1419 100%);
+                        border: 1px solid rgba(48, 76, 178, 0.2);
+                        border-radius: 12px;
+                        padding: 24px;
+                        margin-bottom: 16px;
+                        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+                <div style="display: flex; justify-content: space-between; align-items: start;">
+                    <div style="flex: 1;">
+                        <h3 style="margin: 0 0 8px 0; color: #FFFFFF; font-size: 20px; font-weight: 600;">
+                            {safe(job['title'])}
+                        </h3>
+                        {f'<p style="margin: 0; color: #8B949E; font-size: 14px;">&#128193; {safe(job.get("department"))}</p>' if job.get('department') else ''}
+                    </div>
+                    <div style="display: flex; gap: 12px; align-items: center;">
+                        {status_badge(job['status'], status_color)}
+                    </div>
+                </div>
+                <div style="display: flex; gap: 24px; margin-top: 16px; flex-wrap: wrap;">
+                    <div style="color: #8B949E; font-size: 14px;">
+                        <span style="color: #FFFFFF; font-weight: 500;">{job.get('slots', 1)}</span> slots
+                    </div>
+            """
 
-                with col2:
-                    status_color = {"Open": "🟢", "Closed": "🔴", "On Hold": "🟡"}
-                    st.markdown(f"{status_color.get(job['status'], '⚪')} {job['status']}")
-                    st.caption(f"Slots: {job.get('slots', 1)}")
+            if job.get('contractor_role_id'):
+                role = get_contractor_role(job['contractor_role_id'])
+                if role:
+                    card_html += f"""
+                    <div style="color: #8B949E; font-size: 14px;">
+                        <span style="color: #F9B612; font-weight: 500;">&#128176;</span> {safe(role['name'])}
+                        {f' <span style="color: #6E7681;">| ${role["min_hourly_rate"]:.0f}-${role["max_hourly_rate"]:.0f}/hr</span>' if role.get('min_hourly_rate') and role.get('max_hourly_rate') else ''}
+                    </div>
+                    """
 
-                with col3:
-                    if job.get('contractor_role_id'):
-                        role = get_contractor_role(job['contractor_role_id'])
-                        if role:
-                            st.markdown(f"💰 {role['name']}")
-                            if role.get('min_hourly_rate') and role.get('max_hourly_rate'):
-                                st.caption(f"${role['min_hourly_rate']:.0f}-${role['max_hourly_rate']:.0f}/hr")
+            card_html += """
+                </div>
+            </div>
+            """
 
-                with col4:
-                    if st.button("View", key=f"view_job_{job['id']}", use_container_width=True):
-                        st.session_state.selected_job = job['id']
-                        st.rerun()
+            st.markdown(card_html, unsafe_allow_html=True)
 
-                st.divider()
+            if st.button("View Details", key=f"view_job_{job['id']}", use_container_width=False):
+                st.session_state.selected_job = job['id']
+                st.rerun()
 
     # Job Detail View
     if st.session_state.get('selected_job'):
@@ -167,23 +190,26 @@ def render_job_detail(job_id: int):
     # Header with back button
     col1, col2 = st.columns([6, 1])
     with col1:
-        st.title(f"💼 {job['title']}")
+        st.markdown(section_header(job['title'], job.get('department', '')), unsafe_allow_html=True)
     with col2:
         if st.button("← Back", use_container_width=True):
             st.session_state.selected_job = None
             st.rerun()
 
-    # Job Info
-    st.subheader("Job Information")
+    # Job Info - Premium metrics
+    candidates = get_candidates(job_id=job_id)
+    active_candidates = len([c for c in candidates if c.get('status') == 'Active'])
+
+    status_colors = {"Open": "#2EA043", "Closed": "#C8102E", "On Hold": "#F9B612"}
+    status_color = status_colors.get(job['status'], '#6E7681')
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Status", job['status'])
+        st.markdown(metric_card("Status", job['status'], icon="&#128313;", color=status_color), unsafe_allow_html=True)
     with col2:
-        st.metric("Slots", job.get('slots', 1))
+        st.markdown(metric_card("Available Slots", job.get('slots', 1), icon="&#128188;", color="#304CB2"), unsafe_allow_html=True)
     with col3:
-        candidates = get_candidates(job_id=job_id)
-        st.metric("Candidates", len([c for c in candidates if c.get('status') == 'Active']))
+        st.markdown(metric_card("Active Candidates", active_candidates, icon="&#128100;", color="#304CB2"), unsafe_allow_html=True)
 
     if job.get('department'):
         st.markdown(f"**Department:** {job['department']}")
@@ -294,9 +320,10 @@ def render_job_owners_section(job_id: int):
         for owner in owners:
             col1, col2, col3 = st.columns([3, 2, 1])
             with col1:
-                st.markdown(f"👤 {owner['user_name']}")
+                subtitle = f"{get_role_display_name(owner['user_role'])} • {owner.get('owner_role', 'hiring_manager')}"
+                st.markdown(avatar_badge(owner['user_name'], subtitle), unsafe_allow_html=True)
             with col2:
-                st.caption(f"{get_role_display_name(owner['user_role'])} ({owner.get('owner_role', 'hiring_manager')})")
+                pass  # Empty for spacing
             with col3:
                 if has_permission('jobs', 'edit'):
                     if st.button("Remove", key=f"remove_owner_{owner['user_id']}"):
@@ -304,7 +331,7 @@ def render_job_owners_section(job_id: int):
                         st.success(f"Removed {owner['user_name']} from job")
                         st.rerun()
     else:
-        st.info("No owners assigned to this job")
+        st.markdown(empty_state("No owners assigned to this job", "Add an owner below"), unsafe_allow_html=True)
 
     # Add owner form
     if has_permission('jobs', 'edit'):

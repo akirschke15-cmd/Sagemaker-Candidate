@@ -14,33 +14,33 @@ from database import (
     get_candidate, get_candidates, get_jobs, get_contractor_roles
 )
 from auth import has_permission, get_current_user
-from views.utils import safe
+from views.utils import safe, section_header, kpi_row, metric_card, status_badge, avatar_badge, empty_state
 
 
 def render_contractors():
     """Render contractor lifecycle tracking page"""
-    st.title("📋 Contractor Management")
+    st.markdown(section_header("Contractor Management", "Contract lifecycle tracking"), unsafe_allow_html=True)
 
     current_user = get_current_user()
     if not current_user:
         st.error("Please log in to access this page")
         return
 
-    # Summary metrics
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        active_count = get_active_contractors_count()
-        st.metric("Active Contractors", active_count)
-    with col2:
-        expiring_count = get_contracts_expiring_this_month()
-        st.metric("Expiring This Month", len(expiring_count))
-    with col3:
-        all_contracts = get_contracts()
-        completed = len([c for c in all_contracts if c.get('status') == 'completed'])
-        st.metric("Completed Contracts", completed)
-    with col4:
-        past_contractors = get_past_contractors()
-        st.metric("Past Contractors", len(past_contractors))
+    # Summary metrics - Premium KPI Row
+    active_count = get_active_contractors_count()
+    expiring_count = get_contracts_expiring_this_month()
+    all_contracts = get_contracts()
+    completed = len([c for c in all_contracts if c.get('status') == 'completed'])
+    past_contractors = get_past_contractors()
+
+    kpi_items = [
+        {"label": "Active Contractors", "value": active_count, "icon": "&#128188;", "color": "#2EA043"},
+        {"label": "Expiring This Month", "value": len(expiring_count), "icon": "&#9888;", "color": "#F9B612"},
+        {"label": "Completed Contracts", "value": completed, "icon": "&#10003;", "color": "#304CB2"},
+        {"label": "Past Contractors", "value": len(past_contractors), "icon": "&#128101;", "color": "#6E7681"}
+    ]
+
+    st.markdown(kpi_row(kpi_items), unsafe_allow_html=True)
 
     st.divider()
 
@@ -126,40 +126,83 @@ def render_active_contractors():
     active_contracts = get_contracts(status='active')
 
     if not active_contracts:
-        st.info("No active contracts")
+        st.markdown(empty_state("No active contracts", "Create your first contract above"), unsafe_allow_html=True)
     else:
+        # OPTIMIZATION: Batch-fetch all candidates and jobs to avoid N+1 queries
+        candidate_ids = {c['candidate_id'] for c in active_contracts}
+        all_candidates_list = get_candidates()  # Get all candidates once
+        candidates_map = {c['id']: c for c in all_candidates_list if c['id'] in candidate_ids}
+
+        job_ids = {c['job_id'] for c in active_contracts if c.get('job_id')}
+        all_jobs_list = get_jobs()  # Get all jobs once
+        jobs_map = {j['id']: j for j in all_jobs_list if j['id'] in job_ids}
+
         for contract in active_contracts:
-            candidate = get_candidate(contract['candidate_id'])
+            candidate = candidates_map.get(contract['candidate_id'])
             if not candidate:
                 continue
+
+            # Calculate days remaining
+            days_remaining = 0
+            if contract.get('end_date'):
+                end_date = datetime.fromisoformat(contract['end_date'])
+                days_remaining = (end_date - datetime.now()).days
+
+            # Get job info from map
+            job_title = ""
+            if contract.get('job_id'):
+                job = jobs_map.get(contract['job_id'])
+                if job:
+                    job_title = job['title']
+
+            # Premium contract card
+            card_html = f"""
+            <div style="background: linear-gradient(135deg, #1A2332 0%, #0F1419 100%);
+                        border: 1px solid rgba(48, 76, 178, 0.2);
+                        border-radius: 12px;
+                        padding: 24px;
+                        margin-bottom: 16px;
+                        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 16px;">
+                    <div>
+                        {avatar_badge(safe(candidate['name']), safe(job_title) if job_title else "No job assigned")}
+                    </div>
+                    <div style="text-align: right;">
+                        {metric_card("Rate", f"${contract.get('hourly_rate', 0):.2f}/hr", icon="&#128176;", color="#2EA043") if contract.get('hourly_rate') else ''}
+                    </div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; font-size: 14px;">
+                    <div>
+                        <div style="color: #8B949E; margin-bottom: 4px;">Start Date</div>
+                        <div style="color: #FFFFFF;">{contract['start_date']}</div>
+                    </div>
+                    <div>
+                        <div style="color: #8B949E; margin-bottom: 4px;">End Date</div>
+                        <div style="color: #FFFFFF;">{contract['end_date']}</div>
+                    </div>
+                    <div>
+                        <div style="color: #8B949E; margin-bottom: 4px;">Days Remaining</div>
+                        <div style="color: {'#C8102E' if days_remaining < 30 else '#2EA043'}; font-weight: 500;">
+                            {days_remaining} days {'⚠' if days_remaining < 30 else ''}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            """
+
+            st.markdown(card_html, unsafe_allow_html=True)
 
             with st.container():
                 col1, col2, col3, col4 = st.columns([3, 2, 2, 2])
 
                 with col1:
-                    st.markdown(f"### {safe(candidate['name'])}")
-                    if contract.get('job_id'):
-                        job = get_jobs()
-                        job = next((j for j in job if j['id'] == contract['job_id']), None)
-                        if job:
-                            st.caption(f"📁 {safe(job['title'])}")
+                    pass  # Spacer
 
                 with col2:
-                    st.markdown(f"**Start:** {contract['start_date']}")
-                    st.markdown(f"**End:** {contract['end_date']}")
+                    pass  # Spacer
 
                 with col3:
-                    if contract.get('hourly_rate'):
-                        st.metric("Hourly Rate", f"${contract['hourly_rate']:.2f}/hr")
-
-                    # Calculate days remaining
-                    if contract.get('end_date'):
-                        end_date = datetime.fromisoformat(contract['end_date'])
-                        days_remaining = (end_date - datetime.now()).days
-                        if days_remaining < 30:
-                            st.warning(f"⚠️ {days_remaining} days left")
-                        else:
-                            st.caption(f"{days_remaining} days remaining")
+                    pass  # Spacer
 
                 with col4:
                     # Contract actions
@@ -227,8 +270,13 @@ def render_expiring_contracts():
     if not expiring:
         st.success("No contracts expiring in the next 60 days")
     else:
+        # OPTIMIZATION: Batch-fetch all candidates to avoid N+1 queries
+        candidate_ids = {c['candidate_id'] for c in expiring}
+        all_candidates_list = get_candidates()
+        candidates_map = {c['id']: c for c in all_candidates_list if c['id'] in candidate_ids}
+
         for contract in expiring:
-            candidate = get_candidate(contract['candidate_id'])
+            candidate = candidates_map.get(contract['candidate_id'])
             if not candidate:
                 continue
 
@@ -264,8 +312,13 @@ def render_compliance_tracking():
     if alerts:
         st.warning(f"⚠️ {len(alerts)} compliance documents expiring in the next 30 days")
 
+        # OPTIMIZATION: Batch-fetch all candidates to avoid N+1 queries
+        alert_candidate_ids = {a['candidate_id'] for a in alerts}
+        all_candidates_list = get_candidates()
+        alert_candidates_map = {c['id']: c for c in all_candidates_list if c['id'] in alert_candidate_ids}
+
         for alert in alerts:
-            candidate = get_candidate(alert['candidate_id'])
+            candidate = alert_candidates_map.get(alert['candidate_id'])
             if candidate:
                 st.markdown(f"- **{safe(candidate['name'])}**: {safe(alert['doc_type'])} expires {alert['expiry_date']}")
 
@@ -278,9 +331,9 @@ def render_compliance_tracking():
                 col1, col2 = st.columns(2)
 
                 with col1:
-                    # Get candidates from active contracts
-                    candidates_with_contracts = [get_candidate(cid) for cid in active_candidate_ids]
-                    candidates_with_contracts = [c for c in candidates_with_contracts if c]
+                    # OPTIMIZATION: Get candidates from active contracts using batch fetch
+                    all_candidates_list = get_candidates()
+                    candidates_with_contracts = [c for c in all_candidates_list if c['id'] in active_candidate_ids]
 
                     candidate_options = {c['id']: c['name'] for c in candidates_with_contracts}
                     candidate_id = st.selectbox("Contractor*", options=list(candidate_options.keys()), format_func=lambda x: candidate_options[x])
@@ -311,8 +364,13 @@ def render_compliance_tracking():
     matrix = get_compliance_matrix()
 
     if matrix:
+        # OPTIMIZATION: Batch-fetch all candidates to avoid N+1 queries
+        matrix_candidate_ids = set(matrix.keys())
+        all_candidates_list = get_candidates()
+        matrix_candidates_map = {c['id']: c for c in all_candidates_list if c['id'] in matrix_candidate_ids}
+
         for candidate_id, docs in matrix.items():
-            candidate = get_candidate(candidate_id)
+            candidate = matrix_candidates_map.get(candidate_id)
             if not candidate:
                 continue
 
@@ -392,15 +450,16 @@ def render_rate_analysis():
     roles = get_contractor_roles(active_only=False)
     contracts = get_contracts()
 
-    # Get all jobs to map contractor roles
-    jobs = get_jobs()
+    # OPTIMIZATION: Get all jobs once and build a map
+    all_jobs = get_jobs()
+    jobs_map = {j['id']: j for j in all_jobs}
 
     for role in roles:
         # Find contracts for this role via jobs
         role_contracts = []
         for contract in contracts:
             if contract.get('job_id'):
-                job = next((j for j in jobs if j['id'] == contract['job_id']), None)
+                job = jobs_map.get(contract['job_id'])
                 if job and job.get('contractor_role_id') == role['id']:
                     role_contracts.append(contract)
 

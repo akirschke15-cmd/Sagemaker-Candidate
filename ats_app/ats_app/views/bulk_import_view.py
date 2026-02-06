@@ -11,7 +11,7 @@ from bulk_import import (
 )
 from database import get_jobs, get_vendors
 from auth import get_current_user, has_permission
-from views.utils import safe
+from views.utils import safe, section_header, kpi_row, empty_state
 
 
 def render_bulk_import():
@@ -25,7 +25,7 @@ def render_bulk_import():
     - Import execution
     - Results summary
     """
-    st.title("📤 Bulk Import")
+    st.markdown(section_header("Bulk Import", "Import candidates from CSV or Excel"), unsafe_allow_html=True)
 
     current_user = get_current_user()
     if not current_user:
@@ -54,7 +54,20 @@ def render_bulk_import():
         st.session_state.import_validation = None
 
     # ============ STEP 1: FILE UPLOAD ============
-    st.subheader("Step 1: Upload File")
+    step_html = """
+    <div style="background: linear-gradient(135deg, #1A2332 0%, #0F1419 100%);
+                border-left: 4px solid #304CB2;
+                border-radius: 8px;
+                padding: 16px 20px;
+                margin: 20px 0;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="background: #304CB2; color: #FFFFFF; width: 32px; height: 32px; border-radius: 50%;
+                        display: flex; align-items: center; justify-content: center; font-weight: 600;">1</div>
+            <h3 style="margin: 0; color: #FFFFFF;">Upload File</h3>
+        </div>
+    </div>
+    """
+    st.markdown(step_html, unsafe_allow_html=True)
 
     uploaded_file = st.file_uploader(
         "Choose a CSV or Excel file",
@@ -83,19 +96,31 @@ def render_bulk_import():
 
         df = st.session_state.import_df
 
-        # Show file info
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Total Rows", len(df))
-        with col2:
-            st.metric("Columns", len(df.columns))
-        with col3:
-            st.metric("File Size", f"{uploaded_file.size / 1024:.1f} KB")
+        # Show file info - Premium KPI Row
+        kpi_items = [
+            {"label": "Total Rows", "value": len(df), "icon": "&#128203;", "color": "#304CB2"},
+            {"label": "Columns", "value": len(df.columns), "icon": "&#128196;", "color": "#2EA043"},
+            {"label": "File Size", "value": f"{uploaded_file.size / 1024:.1f} KB", "icon": "&#128190;", "color": "#F9B612"}
+        ]
+        st.markdown(kpi_row(kpi_items), unsafe_allow_html=True)
 
         st.divider()
 
         # ============ STEP 2: COLUMN MAPPING ============
-        st.subheader("Step 2: Map Columns")
+        step_html = """
+        <div style="background: linear-gradient(135deg, #1A2332 0%, #0F1419 100%);
+                    border-left: 4px solid #304CB2;
+                    border-radius: 8px;
+                    padding: 16px 20px;
+                    margin: 20px 0;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <div style="background: #304CB2; color: #FFFFFF; width: 32px; height: 32px; border-radius: 50%;
+                            display: flex; align-items: center; justify-content: center; font-weight: 600;">2</div>
+                <h3 style="margin: 0; color: #FFFFFF;">Map Columns</h3>
+            </div>
+        </div>
+        """
+        st.markdown(step_html, unsafe_allow_html=True)
 
         st.markdown("Map your CSV columns to system fields. Required fields are marked with *")
 
@@ -153,7 +178,20 @@ def render_bulk_import():
         st.divider()
 
         # ============ STEP 3: PREVIEW AND VALIDATE ============
-        st.subheader("Step 3: Preview & Validate")
+        step_html = """
+        <div style="background: linear-gradient(135deg, #1A2332 0%, #0F1419 100%);
+                    border-left: 4px solid #304CB2;
+                    border-radius: 8px;
+                    padding: 16px 20px;
+                    margin: 20px 0;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <div style="background: #304CB2; color: #FFFFFF; width: 32px; height: 32px; border-radius: 50%;
+                            display: flex; align-items: center; justify-content: center; font-weight: 600;">3</div>
+                <h3 style="margin: 0; color: #FFFFFF;">Preview & Validate</h3>
+            </div>
+        </div>
+        """
+        st.markdown(step_html, unsafe_allow_html=True)
 
         if st.button("🔍 Validate Data", type="primary"):
             with st.spinner("Validating data..."):
@@ -163,22 +201,14 @@ def render_bulk_import():
         if st.session_state.import_validation:
             validation = st.session_state.import_validation
 
-            # Show validation summary
-            col1, col2, col3, col4 = st.columns(4)
-
-            with col1:
-                st.metric("Total Rows", validation['total_rows'])
-
-            with col2:
-                st.metric("Valid Rows", validation['valid_rows'], delta=None)
-
-            with col3:
-                st.metric("Invalid Rows", validation['invalid_rows'],
-                         delta=None if validation['invalid_rows'] == 0 else f"-{validation['invalid_rows']}")
-
-            with col4:
-                st.metric("Duplicates Found", validation['duplicate_emails'],
-                         delta=None if validation['duplicate_emails'] == 0 else f"-{validation['duplicate_emails']}")
+            # Show validation summary - Premium KPI Row
+            kpi_items = [
+                {"label": "Total Rows", "value": validation['total_rows'], "icon": "&#128203;", "color": "#304CB2"},
+                {"label": "Valid Rows", "value": validation['valid_rows'], "icon": "&#9989;", "color": "#2EA043"},
+                {"label": "Invalid Rows", "value": validation['invalid_rows'], "icon": "&#10060;", "color": "#C8102E"},
+                {"label": "Duplicates Found", "value": validation['duplicate_emails'], "icon": "&#128260;", "color": "#F9B612"}
+            ]
+            st.markdown(kpi_row(kpi_items), unsafe_allow_html=True)
 
             # Show errors if any
             if validation['errors']:
@@ -206,7 +236,20 @@ def render_bulk_import():
         st.divider()
 
         # ============ STEP 4: IMPORT SETTINGS ============
-        st.subheader("Step 4: Import Settings")
+        step_html = """
+        <div style="background: linear-gradient(135deg, #1A2332 0%, #0F1419 100%);
+                    border-left: 4px solid #304CB2;
+                    border-radius: 8px;
+                    padding: 16px 20px;
+                    margin: 20px 0;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <div style="background: #304CB2; color: #FFFFFF; width: 32px; height: 32px; border-radius: 50%;
+                            display: flex; align-items: center; justify-content: center; font-weight: 600;">4</div>
+                <h3 style="margin: 0; color: #FFFFFF;">Import Settings</h3>
+            </div>
+        </div>
+        """
+        st.markdown(step_html, unsafe_allow_html=True)
 
         col1, col2 = st.columns(2)
 
@@ -256,7 +299,20 @@ def render_bulk_import():
         st.divider()
 
         # ============ STEP 5: EXECUTE IMPORT ============
-        st.subheader("Step 5: Execute Import")
+        step_html = """
+        <div style="background: linear-gradient(135deg, #1A2332 0%, #0F1419 100%);
+                    border-left: 4px solid #304CB2;
+                    border-radius: 8px;
+                    padding: 16px 20px;
+                    margin: 20px 0;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <div style="background: #304CB2; color: #FFFFFF; width: 32px; height: 32px; border-radius: 50%;
+                            display: flex; align-items: center; justify-content: center; font-weight: 600;">5</div>
+                <h3 style="margin: 0; color: #FFFFFF;">Execute Import</h3>
+            </div>
+        </div>
+        """
+        st.markdown(step_html, unsafe_allow_html=True)
 
         # Check if validation passed
         can_import = True
@@ -291,23 +347,16 @@ def render_bulk_import():
                     progress_bar.empty()
                     status_text.empty()
 
-                    # Show results
+                    # Show results - Premium KPI Row
                     st.success("✅ Import completed!")
 
-                    col1, col2, col3, col4 = st.columns(4)
-
-                    with col1:
-                        st.metric("Created", results['created'], delta=None)
-
-                    with col2:
-                        st.metric("Updated", results['updated'], delta=None)
-
-                    with col3:
-                        st.metric("Skipped", results['skipped'], delta=None)
-
-                    with col4:
-                        st.metric("Failed", results['failed'],
-                                 delta=None if results['failed'] == 0 else f"-{results['failed']}")
+                    kpi_items = [
+                        {"label": "Created", "value": results['created'], "icon": "&#10004;", "color": "#2EA043"},
+                        {"label": "Updated", "value": results['updated'], "icon": "&#128260;", "color": "#304CB2"},
+                        {"label": "Skipped", "value": results['skipped'], "icon": "&#10145;", "color": "#F9B612"},
+                        {"label": "Failed", "value": results['failed'], "icon": "&#10060;", "color": "#C8102E"}
+                    ]
+                    st.markdown(kpi_row(kpi_items), unsafe_allow_html=True)
 
                     # Show failed rows if any
                     if results['failed_rows']:
@@ -344,7 +393,7 @@ def render_bulk_import():
 
     else:
         # Show instructions when no file uploaded
-        st.info("👆 Upload a CSV or Excel file to begin")
+        st.markdown(empty_state("Upload a CSV or Excel file to begin", "Drag and drop or click to browse", "&#128190;"), unsafe_allow_html=True)
 
         st.markdown("### 📋 File Format Guidelines")
 

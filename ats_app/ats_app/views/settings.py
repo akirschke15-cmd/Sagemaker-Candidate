@@ -17,7 +17,7 @@ from email_automation import (
 )
 from notifications import send_slack_notification, send_teams_notification, format_test_notification
 from auth import get_current_user, has_permission, is_admin
-from views.utils import safe
+from views.utils import safe, section_header, avatar_badge, status_badge, kpi_row, empty_state
 
 
 def render_settings():
@@ -29,7 +29,7 @@ def render_settings():
     - Notification webhooks
     - Email templates
     """
-    st.title("⚙️ Settings")
+    st.markdown(section_header("Settings", "System configuration"), unsafe_allow_html=True)
 
     current_user = get_current_user()
     if not current_user:
@@ -89,14 +89,17 @@ def render_user_management():
 
     if users:
         for user in users:
-            with st.expander(f"**{safe(user['name'])}** - {user['role']} {'✅' if user['is_active'] else '❌ Inactive'}"):
+            role_badge_html = status_badge(user['role'], '#304CB2' if user['role'] == 'admin' else '#6E7681')
+            status_text = "Active" if user['is_active'] else "Inactive"
+            status_color = "#2EA043" if user['is_active'] else "#C8102E"
+
+            with st.expander(f"{safe(user['name'])} - {user['role']}", expanded=False):
                 col1, col2 = st.columns([2, 1])
 
                 with col1:
-                    st.markdown(f"**Email:** {user['email']}")
-                    st.markdown(f"**Role:** {user['role']}")
-                    st.markdown(f"**Status:** {'Active' if user['is_active'] else 'Inactive'}")
-                    st.markdown(f"**Created:** {user['created_at']}")
+                    st.markdown(avatar_badge(user['name'], user['email']), unsafe_allow_html=True)
+                    st.markdown(f"<div style='margin-top: 12px;'>{role_badge_html} {status_badge(status_text, status_color)}</div>", unsafe_allow_html=True)
+                    st.caption(f"Created: {user['created_at']}")
 
                 with col2:
                     st.markdown("**Actions**")
@@ -317,19 +320,14 @@ def render_email_queue():
         summary = get_automation_summary()
         stats = summary.get('stats', {})
 
-        col1, col2, col3, col4 = st.columns(4)
+        kpi_items = [
+            {"label": "Pending", "value": stats.get('pending_count', 0), "icon": "&#9200;", "color": "#F9B612"},
+            {"label": "Sent Today", "value": stats.get('sent_today', 0), "icon": "&#10003;", "color": "#2EA043"},
+            {"label": "Failed", "value": stats.get('failed_count', 0), "icon": "&#10005;", "color": "#C8102E"},
+            {"label": "Total Sent", "value": stats.get('total_sent', 0), "icon": "&#128231;", "color": "#304CB2"}
+        ]
 
-        with col1:
-            st.metric("Pending", stats.get('pending_count', 0))
-
-        with col2:
-            st.metric("Sent Today", stats.get('sent_today', 0))
-
-        with col3:
-            st.metric("Failed", stats.get('failed_count', 0))
-
-        with col4:
-            st.metric("Total Sent", stats.get('total_sent', 0))
+        st.markdown(kpi_row(kpi_items), unsafe_allow_html=True)
 
     except Exception as e:
         st.error(f"Failed to load queue summary: {str(e)}")

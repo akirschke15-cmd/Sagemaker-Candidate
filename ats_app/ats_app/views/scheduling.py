@@ -16,7 +16,7 @@ from mobile_scorecard import (
 )
 from genai import generate_interview_prep
 from auth import get_current_user, has_permission
-from views.utils import safe
+from views.utils import safe, section_header, avatar_badge, stage_badge, empty_state
 
 
 def render_scheduling():
@@ -28,7 +28,7 @@ def render_scheduling():
     - Mobile scorecard links
     - Interview prep generation
     """
-    st.title("📅 Scheduling")
+    st.markdown(section_header("Scheduling", "Interview calendar and management"), unsafe_allow_html=True)
 
     current_user = get_current_user()
     if not current_user:
@@ -61,7 +61,7 @@ def render_upcoming_interviews():
     interviews = get_interviews(upcoming_only=True)
 
     if not interviews:
-        st.info("No upcoming interviews scheduled")
+        st.markdown(empty_state("No upcoming interviews scheduled", "Schedule your first interview below", "&#128197;"), unsafe_allow_html=True)
         return
 
     # Display interviews
@@ -93,27 +93,58 @@ def render_upcoming_interviews():
             time_str = scheduled_time_str
             is_past = False
 
-        # Create expandable card for each interview
-        with st.expander(f"{'🕒 [Past]' if is_past else '📅'} **{safe(candidate.get('name'))}** - {safe(interview.get('stage'))} - {time_str}", expanded=not is_past):
+        # Create premium card for each interview
+        card_color = "#1A2332" if not is_past else "rgba(26, 35, 50, 0.5)"
+        border_color = "rgba(48, 76, 178, 0.3)" if not is_past else "rgba(110, 118, 129, 0.2)"
+
+        card_html = f"""
+        <div style="background: {card_color};
+                    border: 1px solid {border_color};
+                    border-radius: 12px;
+                    padding: 24px;
+                    margin-bottom: 16px;
+                    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
+            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 16px;">
+                <div>
+                    {avatar_badge(safe(candidate.get('name')), f"{time_str}")}
+                </div>
+                <div>
+                    {stage_badge(interview.get('stage'))}
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; font-size: 14px;">
+                <div>
+                    <div style="color: #8B949E; margin-bottom: 4px;">Email</div>
+                    <div style="color: #FFFFFF;">{safe(candidate.get('email', 'N/A'))}</div>
+                </div>
+                <div>
+                    <div style="color: #8B949E; margin-bottom: 4px;">Phone</div>
+                    <div style="color: #FFFFFF;">{safe(candidate.get('phone', 'N/A'))}</div>
+                </div>
+                {f'''<div>
+                    <div style="color: #8B949E; margin-bottom: 4px;">Job</div>
+                    <div style="color: #FFFFFF;">{safe(job.get('title'))}</div>
+                </div>''' if job else ''}
+                <div>
+                    <div style="color: #8B949E; margin-bottom: 4px;">Interviewer</div>
+                    <div style="color: #FFFFFF;">{safe(interview.get('interviewer_name', 'N/A'))}</div>
+                </div>
+                {f'''<div>
+                    <div style="color: #8B949E; margin-bottom: 4px;">Location</div>
+                    <div style="color: #FFFFFF;">{safe(interview.get('location'))}</div>
+                </div>''' if interview.get('location') else ''}
+                {f'''<div>
+                    <div style="color: #8B949E; margin-bottom: 4px;">Meeting Link</div>
+                    <div style="color: #304CB2;"><a href="{interview.get('meeting_link')}" target="_blank" style="color: #304CB2; text-decoration: none;">Join Meeting &#8599;</a></div>
+                </div>''' if interview.get('meeting_link') else ''}
+            </div>
+        </div>
+        """
+
+        st.markdown(card_html, unsafe_allow_html=True)
+
+        with st.expander(f"Actions for {safe(candidate.get('name'))}", expanded=False):
             col1, col2 = st.columns([2, 1])
-
-            with col1:
-                st.markdown(f"**Candidate:** {candidate.get('name')}")
-                st.markdown(f"**Email:** {candidate.get('email', 'N/A')}")
-                st.markdown(f"**Phone:** {candidate.get('phone', 'N/A')}")
-                st.markdown(f"**Stage:** {interview.get('stage')}")
-
-                if job:
-                    st.markdown(f"**Job:** {job.get('title')}")
-
-                st.markdown(f"**Interviewer:** {interview.get('interviewer_name', 'N/A')}")
-                st.markdown(f"**Interviewer Email:** {interview.get('interviewer_email', 'N/A')}")
-
-                if interview.get('location'):
-                    st.markdown(f"**Location:** {interview.get('location')}")
-
-                if interview.get('meeting_link'):
-                    st.markdown(f"**Meeting Link:** [{interview.get('meeting_link')}]({interview.get('meeting_link')})")
 
             with col2:
                 st.markdown("**Actions**")
@@ -214,8 +245,6 @@ def render_upcoming_interviews():
 
                             except Exception as e:
                                 st.error(f"Error generating prep notes: {str(e)}")
-
-            st.divider()
 
 
 def render_schedule_interview_form():
