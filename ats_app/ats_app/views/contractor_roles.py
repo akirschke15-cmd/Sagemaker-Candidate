@@ -9,7 +9,7 @@ from database import (
     get_contracts
 )
 from auth import has_permission, get_current_user
-from views.utils import safe, section_header, kpi_row, metric_card, status_badge, progress_bar_html, empty_state
+from views.utils import safe, section_header, kpi_row, metric_card, status_badge, progress_bar_html, empty_state, _clean_html
 
 
 def render_contractor_roles():
@@ -27,9 +27,9 @@ def render_contractor_roles():
     jobs_with_roles = sum(1 for role in active_roles if get_jobs_by_contractor_role(role['id']))
 
     kpi_items = [
-        {"label": "Total Roles", "value": len(all_roles), "icon": "&#128188;", "color": "#304CB2"},
-        {"label": "Active Roles", "value": len(active_roles), "icon": "&#9989;", "color": "#2EA043"},
-        {"label": "Roles in Use", "value": jobs_with_roles, "icon": "&#128188;", "color": "#F9B612"}
+        {"label": "Total Roles", "value": len(all_roles), "icon": "💼", "color": "#304CB2"},
+        {"label": "Active Roles", "value": len(active_roles), "icon": "✅", "color": "#2EA043"},
+        {"label": "Roles in Use", "value": jobs_with_roles, "icon": "📊", "color": "#F9B612"}
     ]
 
     st.markdown(kpi_row(kpi_items), unsafe_allow_html=True)
@@ -153,7 +153,7 @@ def render_contractor_role_card(role: dict):
     </div>
     """
 
-    st.markdown(card_html, unsafe_allow_html=True)
+    st.markdown(_clean_html(card_html), unsafe_allow_html=True)
 
     with st.container():
         col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
@@ -178,7 +178,7 @@ def render_contractor_role_card(role: dict):
         # Edit form
         if st.session_state.get(f'edit_role_{role["id"]}'):
             with st.form(f"edit_role_form_{role['id']}"):
-                st.markdown("**Edit Contractor Role**")
+                st.markdown("**Edit Contractor Role**", unsafe_allow_html=True)
 
                 col1, col2 = st.columns(2)
                 with col1:
@@ -217,11 +217,11 @@ def render_contractor_role_card(role: dict):
         # Show linked jobs
         jobs = get_jobs_by_contractor_role(role['id'])
         if jobs:
-            with st.expander(f"📋 Jobs Using This Role ({len(jobs)})", expanded=False):
+            with st.expander(f"Jobs Using This Role ({len(jobs)})", expanded=False):
                 for job in jobs:
                     col1, col2, col3 = st.columns([3, 2, 1])
                     with col1:
-                        st.markdown(f"**{safe(job['title'])}**")
+                        st.markdown(f"**{safe(job['title'])}**", unsafe_allow_html=True)
                     with col2:
                         st.caption(f"Status: {job['status']}")
                     with col3:
@@ -229,7 +229,7 @@ def render_contractor_role_card(role: dict):
 
         # Show rate compliance overview
         if jobs and role.get('min_hourly_rate') and role.get('max_hourly_rate'):
-            with st.expander(f"💵 Rate Compliance Overview", expanded=False):
+            with st.expander(f"Rate Compliance Overview", expanded=False):
                 render_rate_compliance_for_role(role, jobs)
 
         st.divider()
@@ -269,8 +269,8 @@ def render_rate_compliance_for_role(role: dict, jobs: list):
     with col4:
         st.metric("Highest Rate", f"${max(rates):.2f}/hr")
 
-    st.markdown("**Expected Range**")
-    st.markdown(f"${role['min_hourly_rate']:.0f} - ${role['max_hourly_rate']:.0f}/hr")
+    st.markdown("**Expected Range**", unsafe_allow_html=True)
+    st.markdown(f"${role['min_hourly_rate']:.0f} - ${role['max_hourly_rate']:.0f}/hr", unsafe_allow_html=True)
 
     # Check for out-of-range rates
     below_min = [r for r in rates if r < role['min_hourly_rate']]
@@ -297,7 +297,7 @@ def render_rate_compliance_for_role(role: dict, jobs: list):
 
     # Show out-of-range contracts
     if below_min or above_max:
-        st.markdown("**Out-of-Range Contracts:**")
+        st.markdown("**Out-of-Range Contracts:**", unsafe_allow_html=True)
         from database import get_candidate
 
         for contract in role_contracts:
@@ -306,4 +306,4 @@ def render_rate_compliance_for_role(role: dict, jobs: list):
                 candidate = get_candidate(contract['candidate_id'])
                 if candidate:
                     variance = rate - role['min_hourly_rate'] if rate < role['min_hourly_rate'] else rate - role['max_hourly_rate']
-                    st.markdown(f"- **{safe(candidate['name'])}**: ${rate:.2f}/hr (${variance:+.2f} from range)")
+                    st.markdown(f"- **{safe(candidate['name'])}**: ${rate:.2f}/hr (${variance:+.2f} from range)", unsafe_allow_html=True)

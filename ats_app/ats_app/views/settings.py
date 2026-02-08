@@ -18,6 +18,8 @@ from email_automation import (
 from notifications import send_slack_notification, send_teams_notification, format_test_notification
 from auth import get_current_user, has_permission, is_admin
 from views.utils import safe, section_header, avatar_badge, status_badge, kpi_row, empty_state
+from genai import get_ai_backend_status, invoke_claude, ANTHROPIC_AVAILABLE, BEDROCK_AVAILABLE
+from config import settings
 
 
 def render_settings():
@@ -65,6 +67,11 @@ def render_settings():
         tabs.append("🔔 Notifications")
         tab_functions.append(render_notifications)
 
+    # AI Configuration (admin only)
+    if is_admin():
+        tabs.append("🤖 AI Configuration")
+        tab_functions.append(render_ai_configuration)
+
     if not tabs:
         st.warning("No settings sections available for your role")
         return
@@ -93,7 +100,7 @@ def render_user_management():
             status_text = "Active" if user['is_active'] else "Inactive"
             status_color = "#2EA043" if user['is_active'] else "#C8102E"
 
-            with st.expander(f"{safe(user['name'])} - {user['role']}", expanded=False):
+            with st.expander(f"{user['name']} - {user['role']}", expanded=False):
                 col1, col2 = st.columns([2, 1])
 
                 with col1:
@@ -102,7 +109,7 @@ def render_user_management():
                     st.caption(f"Created: {user['created_at']}")
 
                 with col2:
-                    st.markdown("**Actions**")
+                    st.markdown("**Actions**", unsafe_allow_html=True)
 
                     # Edit role
                     with st.form(f"edit_role_{user['id']}"):
@@ -195,19 +202,19 @@ def render_email_automation():
             status = "✅ Enabled" if rule.get('is_enabled') else "❌ Disabled"
             job_name = rule.get('job_title', 'All Jobs (Global)')
 
-            with st.expander(f"{status} - {safe(rule['from_stage'])} → {safe(rule['to_stage'])} ({safe(job_name)})"):
+            with st.expander(f"{status} - {rule['from_stage']} → {rule['to_stage']} ({job_name})"):
                 col1, col2 = st.columns([2, 1])
 
                 with col1:
-                    st.markdown(f"**From Stage:** {rule['from_stage']}")
-                    st.markdown(f"**To Stage:** {rule['to_stage']}")
-                    st.markdown(f"**Template:** {rule['template_name']}")
-                    st.markdown(f"**Job:** {job_name}")
-                    st.markdown(f"**Delay:** {rule.get('delay_minutes', 0)} minutes")
-                    st.markdown(f"**Status:** {'Enabled' if rule.get('is_enabled') else 'Disabled'}")
+                    st.markdown(f"**From Stage:** {rule['from_stage']}", unsafe_allow_html=True)
+                    st.markdown(f"**To Stage:** {rule['to_stage']}", unsafe_allow_html=True)
+                    st.markdown(f"**Template:** {rule['template_name']}", unsafe_allow_html=True)
+                    st.markdown(f"**Job:** {job_name}", unsafe_allow_html=True)
+                    st.markdown(f"**Delay:** {rule.get('delay_minutes', 0)} minutes", unsafe_allow_html=True)
+                    st.markdown(f"**Status:** {'Enabled' if rule.get('is_enabled') else 'Disabled'}", unsafe_allow_html=True)
 
                 with col2:
-                    st.markdown("**Actions**")
+                    st.markdown("**Actions**", unsafe_allow_html=True)
 
                     # Toggle enabled/disabled
                     if rule.get('is_enabled'):
@@ -368,10 +375,10 @@ def render_email_queue():
                 except:
                     time_str = scheduled_time
 
-                with st.expander(f"To: {safe(email.get('to_email'))} - {time_str}"):
-                    st.markdown(f"**Candidate:** {email.get('candidate_name', 'Unknown')}")
-                    st.markdown(f"**Subject:** {email.get('subject')}")
-                    st.markdown(f"**Scheduled:** {time_str}")
+                with st.expander(f"To: {email.get('to_email', 'Unknown')} - {time_str}"):
+                    st.markdown(f"**Candidate:** {email.get('candidate_name', 'Unknown')}", unsafe_allow_html=True)
+                    st.markdown(f"**Subject:** {email.get('subject')}", unsafe_allow_html=True)
+                    st.markdown(f"**Scheduled:** {time_str}", unsafe_allow_html=True)
 
                     if st.button("❌ Cancel", key=f"cancel_{email['id']}"):
                         try:
@@ -396,10 +403,10 @@ def render_email_queue():
 
         if failed_emails:
             for email in failed_emails:
-                with st.expander(f"To: {safe(email.get('to_email'))} - Failed"):
-                    st.markdown(f"**Candidate:** {email.get('candidate_name', 'Unknown')}")
-                    st.markdown(f"**Subject:** {email.get('subject')}")
-                    st.markdown(f"**Error:** {email.get('error_message', 'Unknown error')}")
+                with st.expander(f"To: {email.get('to_email', 'Unknown')} - Failed"):
+                    st.markdown(f"**Candidate:** {email.get('candidate_name', 'Unknown')}", unsafe_allow_html=True)
+                    st.markdown(f"**Subject:** {email.get('subject')}", unsafe_allow_html=True)
+                    st.markdown(f"**Error:** {email.get('error_message', 'Unknown error')}", unsafe_allow_html=True)
 
                     if st.button("🔄 Retry", key=f"retry_{email['id']}"):
                         try:
@@ -431,22 +438,22 @@ def render_notifications():
                 icon = "💬" if platform == 'slack' else "👥" if platform == 'teams' else "🔔"
                 status = "✅ Active" if webhook.get('is_active') else "❌ Inactive"
 
-                with st.expander(f"{icon} {platform.upper()} - {safe(webhook.get('channel_name', 'No channel'))} - {status}"):
+                with st.expander(f"{icon} {platform.upper()} - {webhook.get('channel_name', 'No channel')} - {status}"):
                     col1, col2 = st.columns([2, 1])
 
                     with col1:
-                        st.markdown(f"**Platform:** {platform}")
-                        st.markdown(f"**Channel:** {webhook.get('channel_name', 'N/A')}")
-                        st.markdown(f"**Job:** {webhook.get('job_title', 'All Jobs (Global)')}")
-                        st.markdown(f"**Webhook URL:** `{webhook.get('webhook_url', '')[:50]}...`")
+                        st.markdown(f"**Platform:** {platform}", unsafe_allow_html=True)
+                        st.markdown(f"**Channel:** {webhook.get('channel_name', 'N/A')}", unsafe_allow_html=True)
+                        st.markdown(f"**Job:** {webhook.get('job_title', 'All Jobs (Global)')}", unsafe_allow_html=True)
+                        st.markdown(f"**Webhook URL:** `{webhook.get('webhook_url', '')[:50]}...`", unsafe_allow_html=True)
 
                         if webhook.get('last_success'):
-                            st.markdown(f"**Last Success:** {webhook.get('last_success')}")
+                            st.markdown(f"**Last Success:** {webhook.get('last_success')}", unsafe_allow_html=True)
                         if webhook.get('last_failure'):
-                            st.markdown(f"**Last Failure:** {webhook.get('last_failure')}")
+                            st.markdown(f"**Last Failure:** {webhook.get('last_failure')}", unsafe_allow_html=True)
 
                     with col2:
-                        st.markdown("**Actions**")
+                        st.markdown("**Actions**", unsafe_allow_html=True)
 
                         # Test webhook
                         if st.button("🧪 Test", key=f"test_webhook_{webhook['id']}", use_container_width=True):
@@ -527,7 +534,7 @@ def render_notifications():
             selected_job_label = st.selectbox("Notifications for Job", list(job_options.keys()))
             selected_job_id = job_options[selected_job_label]
 
-            st.markdown("**Events to notify:**")
+            st.markdown("**Events to notify:**", unsafe_allow_html=True)
             notify_new_candidate = st.checkbox("New candidate added", value=True)
             notify_stage_change = st.checkbox("Candidate stage change", value=True)
             notify_interview = st.checkbox("Interview scheduled", value=True)
@@ -559,3 +566,119 @@ def render_notifications():
 
                 except Exception as e:
                     st.error(f"Failed to create webhook: {str(e)}")
+
+
+def render_ai_configuration():
+    """AI configuration and status section - admin only"""
+    st.subheader("AI Configuration")
+
+    # ============ CURRENT AI BACKEND STATUS ============
+    st.markdown("### Current AI Backend")
+
+    try:
+        backend_status = get_ai_backend_status()
+    except Exception:
+        backend_status = "Error retrieving status"
+
+    # Determine status color and icon
+    if "Claude API" in backend_status:
+        status_color = "#2EA043"
+        status_icon = "&#9889;"  # lightning bolt
+    elif "Bedrock" in backend_status:
+        status_color = "#304CB2"
+        status_icon = "&#9729;"  # cloud
+    else:
+        status_color = "#F9B612"
+        status_icon = "&#9888;"  # warning
+
+    kpi_items = [
+        {"label": "Backend", "value": backend_status, "icon": status_icon, "color": status_color},
+        {"label": "Model", "value": settings.AI_MODEL, "icon": "&#129302;", "color": "#304CB2"},
+        {"label": "Max Tokens", "value": str(settings.AI_MAX_TOKENS), "icon": "&#128290;", "color": "#8B5CF6"},
+        {"label": "Timeout", "value": f"{settings.AI_TIMEOUT_SECONDS}s", "icon": "&#9200;", "color": "#FF8F00"},
+    ]
+
+    st.markdown(kpi_row(kpi_items), unsafe_allow_html=True)
+
+    st.divider()
+
+    # ============ API CONFIGURATION ============
+    st.markdown("### API Configuration")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("**Anthropic Direct API**")
+
+        # API key status (never show the actual key)
+        api_key_configured = bool(settings.ANTHROPIC_API_KEY)
+        if api_key_configured:
+            masked_key = settings.ANTHROPIC_API_KEY[:8] + "..." + settings.ANTHROPIC_API_KEY[-4:] if len(settings.ANTHROPIC_API_KEY) > 12 else "***"
+            st.markdown(
+                f"{status_badge('Configured', '#2EA043')} &nbsp; `{safe(masked_key)}`",
+                unsafe_allow_html=True
+            )
+        else:
+            st.markdown(
+                f"{status_badge('Not Configured', '#F9B612')}",
+                unsafe_allow_html=True
+            )
+
+        st.markdown(f"**anthropic package:** {status_badge('Installed', '#2EA043') if ANTHROPIC_AVAILABLE else status_badge('Not Installed', '#C8102E')}", unsafe_allow_html=True)
+        st.markdown(f"**Model:** `{safe(settings.AI_MODEL)}`", unsafe_allow_html=True)
+        st.markdown(f"**Max Tokens:** `{settings.AI_MAX_TOKENS}`", unsafe_allow_html=True)
+        st.markdown(f"**Timeout:** `{settings.AI_TIMEOUT_SECONDS}s`", unsafe_allow_html=True)
+
+    with col2:
+        st.markdown("**AWS Bedrock**")
+
+        st.markdown(f"**boto3 package:** {status_badge('Installed', '#2EA043') if BEDROCK_AVAILABLE else status_badge('Not Installed', '#C8102E')}", unsafe_allow_html=True)
+        st.markdown(f"**Region:** `{safe(settings.AWS_REGION)}`", unsafe_allow_html=True)
+        st.markdown(f"**Model ID:** `{safe(settings.BEDROCK_MODEL_ID)}`", unsafe_allow_html=True)
+        st.markdown(f"**Connect Timeout:** `{settings.BEDROCK_CONNECT_TIMEOUT}s`", unsafe_allow_html=True)
+        st.markdown(f"**Read Timeout:** `{settings.BEDROCK_READ_TIMEOUT}s`", unsafe_allow_html=True)
+
+    st.divider()
+
+    # ============ AI FEATURE AVAILABILITY ============
+    st.markdown("### AI Feature Availability")
+
+    # Determine if any AI backend is active
+    ai_available = ("Claude API" in backend_status or "Bedrock" in backend_status)
+
+    features = [
+        {"name": "Resume Scoring", "description": "AI-powered resume analysis and scoring against job descriptions"},
+        {"name": "Interview Notes Summary", "description": "Automatic summarization of interview feedback"},
+        {"name": "Interview Question Generation", "description": "Tailored interview questions based on resume and job"},
+        {"name": "Candidate Comparison", "description": "AI-powered candidate ranking and recommendations"},
+        {"name": "Interview Prep", "description": "Generate interview preparation notes for interviewers"},
+    ]
+
+    for feature in features:
+        if ai_available:
+            badge = status_badge("Available", "#2EA043")
+        else:
+            badge = status_badge("Unavailable", "#C8102E")
+        st.markdown(
+            f"{badge} &nbsp; **{safe(feature['name'])}** — {safe(feature['description'])}",
+            unsafe_allow_html=True
+        )
+
+    if not ai_available:
+        st.info("All AI features are running in mock/fallback mode. Configure an Anthropic API key or AWS Bedrock credentials to enable real AI capabilities.")
+
+    st.divider()
+
+    # ============ TEST AI CONNECTION ============
+    st.markdown("### Test AI Connection")
+
+    if st.button("🧪 Test AI Connection", type="primary", use_container_width=True):
+        with st.spinner("Testing AI connection..."):
+            try:
+                result = invoke_claude("Respond with exactly: CONNECTION_OK", max_tokens=20)
+                if result:
+                    st.success(f"AI connection successful. Response: {result.strip()}")
+                else:
+                    st.warning("AI returned no response. Check your API key and network connectivity.")
+            except Exception as e:
+                st.error(f"AI connection test failed: {str(e)}")

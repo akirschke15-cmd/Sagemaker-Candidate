@@ -56,6 +56,7 @@ from notifications import (
     send_slack_notification, send_teams_notification,
     format_test_notification
 )
+from config import settings
 # Feature 7: Authentication and RBAC
 from auth import (
     init_auth_session, get_current_user, set_current_user, logout_user,
@@ -189,6 +190,10 @@ if 'show_comparison_view' not in st.session_state:
 
 # Initialize auth session state
 init_auth_session()
+
+# DEV_MODE: Auto-login as admin if no user is logged in (skip manual login on every refresh)
+if settings.DEV_MODE and not get_current_user():
+    set_current_user(1)  # Auto-login as first user (admin)
 
 # ============ SIDEBAR ============
 with st.sidebar:

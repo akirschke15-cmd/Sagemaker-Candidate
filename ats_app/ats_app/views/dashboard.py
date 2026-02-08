@@ -12,7 +12,7 @@ from database import (
 from views.utils import (
     safe, get_stage_color, get_stage_icon, metric_card, status_badge,
     stage_badge, section_header, pipeline_tracker, empty_state,
-    avatar_badge, kpi_row, progress_bar_html
+    avatar_badge, kpi_row, progress_bar_html, _clean_html
 )
 from auth import get_current_user, can_view_all_jobs, can_view_all_candidates
 
@@ -75,22 +75,23 @@ def render_dashboard():
     # ============ PIPELINE FUNNEL ============
     st.markdown(section_header("Pipeline Funnel", "Candidates across all stages"), unsafe_allow_html=True)
 
-    st.markdown(pipeline_tracker(STAGES, None, show_icons=True), unsafe_allow_html=True)
+    st.markdown(pipeline_tracker(STAGES, show_icons=True, stage_counts=pipeline_stats), unsafe_allow_html=True)
 
     # ============ STAGE COUNTS GRID ============
     st.markdown("<div style='margin-top:24px;'></div>", unsafe_allow_html=True)
 
-    stage_cols = st.columns(len(STAGES))
-    for i, stage in enumerate(STAGES):
-        count = pipeline_stats.get(stage, 0)
-        color = get_stage_color(stage)
-        icon = get_stage_icon(stage)
+    if STAGES:
+        stage_cols = st.columns(len(STAGES))
+        for i, stage in enumerate(STAGES):
+            count = pipeline_stats.get(stage, 0)
+            color = get_stage_color(stage)
+            icon = get_stage_icon(stage)
 
-        with stage_cols[i]:
-            st.markdown(
-                metric_card(stage, count, icon=icon, color=color),
-                unsafe_allow_html=True
-            )
+            with stage_cols[i]:
+                st.markdown(
+                    metric_card(stage, count, icon=icon, color=color),
+                    unsafe_allow_html=True
+                )
 
     # ============ TWO COLUMN LAYOUT ============
     st.markdown("<div style='margin-top:32px;'></div>", unsafe_allow_html=True)
@@ -102,12 +103,12 @@ def render_dashboard():
         st.markdown(section_header("Upcoming Interviews", f"{len(upcoming_interviews)} scheduled"), unsafe_allow_html=True)
 
         if upcoming_interviews:
-            # OPTIMIZATION: Combine HTML generation to reduce st.markdown() calls
-            interviews_html_parts = ["""
+            # Glass card container for interviews
+            st.markdown("""
             <div style='background: rgba(26,35,50,0.8); backdrop-filter: blur(12px);
                         border: 1px solid rgba(255,255,255,0.06); border-radius:12px;
                         padding:20px;'>
-            """]
+            """, unsafe_allow_html=True)
 
             # Build expander content separately since expanders need to be interactive
             for interview in upcoming_interviews[:5]:
@@ -115,7 +116,7 @@ def render_dashboard():
                 try:
                     dt = datetime.fromisoformat(scheduled_time)
                     time_str = dt.strftime("%b %d, %I:%M %p")
-                except:
+                except (ValueError, TypeError, AttributeError):
                     time_str = scheduled_time
 
                 candidate_name = interview.get('candidate_name', 'Unknown')
@@ -169,17 +170,21 @@ def render_dashboard():
                 stage = candidate.get('current_stage', 'Unknown')
                 job_title = candidate.get('job_title', 'No job')
                 candidate_name = candidate.get('name', 'Unknown')
+                candidate_id = candidate.get('id')
 
-                col1, col2, col3 = st.columns([3, 2, 1])
+                if not candidate_id:
+                    continue  # Skip candidates without valid ID
+
+                col1, col2, col3 = st.columns([3, 3, 2])
                 with col1:
-                    if st.button(candidate_name, key=f"dash_cand_{candidate['id']}", use_container_width=True):
+                    if st.button(candidate_name, key=f"dash_cand_{candidate_id}", use_container_width=True):
                         st.session_state.current_view = 'candidates'
-                        st.session_state.selected_candidate = candidate['id']
+                        st.session_state.selected_candidate = candidate_id
                         st.rerun()
                 with col2:
-                    st.markdown(f"<small style='color:#94a3b8;'>{safe(job_title)}</small>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='color:#94a3b8; font-size:0.875rem; padding:0.5rem 0; line-height:2;'>{safe(job_title)}</div>", unsafe_allow_html=True)
                 with col3:
-                    st.markdown(stage_badge(stage), unsafe_allow_html=True)
+                    st.markdown(f"<div style='text-align:right;'>{stage_badge(stage)}</div>", unsafe_allow_html=True)
 
             st.markdown("</div>", unsafe_allow_html=True)
         else:
@@ -213,10 +218,10 @@ def render_dashboard():
                 with st.expander(f"**{safe(job_title)}** - {filled}/{slots} filled", expanded=False):
                     st.markdown(progress_bar_html(filled, slots, color='#2EA043'), unsafe_allow_html=True)
                     st.markdown(f"<div style='margin-top:12px;'></div>", unsafe_allow_html=True)
-                    st.markdown(f"**Total Candidates:** {total_candidates}")
-                    st.markdown(f"**Active:** {active}")
-                    st.markdown(f"**Filled:** {filled}")
-                    st.markdown(f"**Remaining Slots:** {remaining}")
+                    st.markdown(f"**Total Candidates:** {total_candidates}", unsafe_allow_html=True)
+                    st.markdown(f"**Active:** {active}", unsafe_allow_html=True)
+                    st.markdown(f"**Filled:** {filled}", unsafe_allow_html=True)
+                    st.markdown(f"**Remaining Slots:** {remaining}", unsafe_allow_html=True)
 
             st.markdown("</div>", unsafe_allow_html=True)
         else:
@@ -249,8 +254,8 @@ def render_dashboard():
                 no_rate = stat.get('no_rate_count', 0)
 
                 with st.expander(f"**{safe(job_title)}** - {safe(role_name)}", expanded=False):
-                    if min_rate and max_rate:
-                        st.markdown(f"**Rate Range:** ${min_rate:.2f} - ${max_rate:.2f}/hr")
+                    if min_rate is not None and max_rate is not None:
+                        st.markdown(f"**Rate Range:** ${min_rate:.2f} - ${max_rate:.2f}/hr", unsafe_allow_html=True)
                     st.markdown(f"<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
 
                     # In range
@@ -296,7 +301,7 @@ def render_dashboard():
                 end_date = contract.get('end_date', 'N/A')
                 job_title = contract.get('job_title', 'N/A')
 
-                st.markdown(f"""
+                st.markdown(_clean_html(f"""
                 <div style='background: rgba(200,16,46,0.1); border: 1px solid rgba(200,16,46,0.3);
                             border-radius:8px; padding:12px; margin-bottom:8px;'>
                     <div style='color:#ffffff; font-weight:600; margin-bottom:4px;'>
@@ -306,7 +311,7 @@ def render_dashboard():
                         {safe(job_title)} • Ends: {safe(end_date)}
                     </div>
                 </div>
-                """, unsafe_allow_html=True)
+                """), unsafe_allow_html=True)
         else:
             st.markdown("""
             <div style='background: rgba(46,160,67,0.1); border: 1px solid rgba(46,160,67,0.3);
@@ -347,9 +352,17 @@ def render_dashboard():
                     alert_color = '#64748b'
                     alert_text = f"{safe(doc_type)} {safe(status)}"
 
-                st.markdown(f"""
-                <div style='background: rgba({int(alert_color[1:3], 16)},{int(alert_color[3:5], 16)},{int(alert_color[5:7], 16)},0.1);
-                            border: 1px solid rgba({int(alert_color[1:3], 16)},{int(alert_color[3:5], 16)},{int(alert_color[5:7], 16)},0.3);
+                # Convert hex to RGB once for efficiency
+                try:
+                    r = int(alert_color[1:3], 16)
+                    g = int(alert_color[3:5], 16)
+                    b = int(alert_color[5:7], 16)
+                except (ValueError, IndexError):
+                    r, g, b = 100, 116, 139  # Default to gray
+
+                st.markdown(_clean_html(f"""
+                <div style='background: rgba({r},{g},{b},0.1);
+                            border: 1px solid rgba({r},{g},{b},0.3);
                             border-radius:8px; padding:12px; margin-bottom:8px;'>
                     <div style='color:#ffffff; font-weight:600; margin-bottom:4px;'>
                         {safe(candidate_name)}
@@ -358,7 +371,7 @@ def render_dashboard():
                         {alert_text}
                     </div>
                 </div>
-                """, unsafe_allow_html=True)
+                """), unsafe_allow_html=True)
         else:
             st.markdown("""
             <div style='background: rgba(46,160,67,0.1); border: 1px solid rgba(46,160,67,0.3);

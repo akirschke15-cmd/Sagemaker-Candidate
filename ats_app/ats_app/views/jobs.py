@@ -16,7 +16,7 @@ from auth import (
 )
 from views.utils import (
     get_stage_color, safe, section_header, metric_card, status_badge,
-    avatar_badge, empty_state
+    avatar_badge, empty_state, _clean_html
 )
 
 
@@ -129,7 +129,7 @@ def render_jobs():
                         <h3 style="margin: 0 0 8px 0; color: #FFFFFF; font-size: 20px; font-weight: 600;">
                             {safe(job['title'])}
                         </h3>
-                        {f'<p style="margin: 0; color: #8B949E; font-size: 14px;">&#128193; {safe(job.get("department"))}</p>' if job.get('department') else ''}
+                        {f'<p style="margin: 0; color: #8B949E; font-size: 14px;">📁 {safe(job.get("department"))}</p>' if job.get('department') else ''}
                     </div>
                     <div style="display: flex; gap: 12px; align-items: center;">
                         {status_badge(job['status'], status_color)}
@@ -146,7 +146,7 @@ def render_jobs():
                 if role:
                     card_html += f"""
                     <div style="color: #8B949E; font-size: 14px;">
-                        <span style="color: #F9B612; font-weight: 500;">&#128176;</span> {safe(role['name'])}
+                        <span style="color: #F9B612; font-weight: 500;">💰</span> {safe(role['name'])}
                         {f' <span style="color: #6E7681;">| ${role["min_hourly_rate"]:.0f}-${role["max_hourly_rate"]:.0f}/hr</span>' if role.get('min_hourly_rate') and role.get('max_hourly_rate') else ''}
                     </div>
                     """
@@ -156,7 +156,7 @@ def render_jobs():
             </div>
             """
 
-            st.markdown(card_html, unsafe_allow_html=True)
+            st.markdown(_clean_html(card_html), unsafe_allow_html=True)
 
             if st.button("View Details", key=f"view_job_{job['id']}", use_container_width=False):
                 st.session_state.selected_job = job['id']
@@ -205,29 +205,29 @@ def render_job_detail(job_id: int):
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.markdown(metric_card("Status", job['status'], icon="&#128313;", color=status_color), unsafe_allow_html=True)
+        st.markdown(metric_card("Status", job['status'], icon="🔵", color=status_color), unsafe_allow_html=True)
     with col2:
-        st.markdown(metric_card("Available Slots", job.get('slots', 1), icon="&#128188;", color="#304CB2"), unsafe_allow_html=True)
+        st.markdown(metric_card("Available Slots", job.get('slots', 1), icon="💼", color="#304CB2"), unsafe_allow_html=True)
     with col3:
-        st.markdown(metric_card("Active Candidates", active_candidates, icon="&#128100;", color="#304CB2"), unsafe_allow_html=True)
+        st.markdown(metric_card("Active Candidates", active_candidates, icon="👥", color="#304CB2"), unsafe_allow_html=True)
 
     if job.get('department'):
-        st.markdown(f"**Department:** {job['department']}")
+        st.markdown(f"**Department:** {job['department']}", unsafe_allow_html=True)
 
     if job.get('contractor_role_id'):
         role = get_contractor_role(job['contractor_role_id'])
         if role:
-            st.markdown(f"**Contractor Role:** {role['name']}")
+            st.markdown(f"**Contractor Role:** {role['name']}", unsafe_allow_html=True)
             if role.get('min_hourly_rate') and role.get('max_hourly_rate'):
-                st.markdown(f"**Rate Range:** ${role['min_hourly_rate']:.0f} - ${role['max_hourly_rate']:.0f}/hr")
+                st.markdown(f"**Rate Range:** ${role['min_hourly_rate']:.0f} - ${role['max_hourly_rate']:.0f}/hr", unsafe_allow_html=True)
 
     if job.get('description'):
-        st.markdown("**Description:**")
-        st.markdown(job['description'])
+        st.markdown("**Description:**", unsafe_allow_html=True)
+        st.markdown(job['description'], unsafe_allow_html=True)
 
     if job.get('requirements'):
-        st.markdown("**Requirements:**")
-        st.markdown(job['requirements'])
+        st.markdown("**Requirements:**", unsafe_allow_html=True)
+        st.markdown(job['requirements'], unsafe_allow_html=True)
 
     st.divider()
 

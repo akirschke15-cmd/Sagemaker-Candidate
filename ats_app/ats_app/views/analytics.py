@@ -12,7 +12,7 @@ from database import (
 from auth import get_current_user, has_permission
 from views.utils import (
     safe, metric_card, section_header, kpi_row, progress_bar_html,
-    status_badge, empty_state
+    status_badge, empty_state, _clean_html
 )
 
 
@@ -233,14 +233,14 @@ def render_pipeline_metrics():
                     else:
                         color = '#C8102E'
 
-                    st.markdown(f"""
+                    st.markdown(_clean_html(f"""
                     <div style='margin-bottom:16px;'>
                         <div style='font-size:13px; color:#94a3b8; margin-bottom:6px;'>
                             {safe(from_stage)} → {safe(to_stage)}
                         </div>
                         {progress_bar_html(advanced, total, color=color)}
                     </div>
-                    """, unsafe_allow_html=True)
+                    """), unsafe_allow_html=True)
 
             st.markdown("</div>", unsafe_allow_html=True)
         else:
@@ -523,7 +523,7 @@ def render_ai_insights():
                 insight_icon = '&#10060;'
                 insight_text = "AI scores show negative or no correlation with hiring outcomes. Review scoring criteria and training data."
 
-            st.markdown(f"""
+            st.markdown(_clean_html(f"""
             <div style='background: rgba(26,35,50,0.8); backdrop-filter: blur(12px);
                         border: 1px solid rgba(255,255,255,0.06); border-radius:12px;
                         border-left: 4px solid {insight_color}; padding:20px;'>
@@ -539,7 +539,7 @@ def render_ai_insights():
                     </div>
                 </div>
             </div>
-            """, unsafe_allow_html=True)
+            """), unsafe_allow_html=True)
 
         else:
             st.markdown(

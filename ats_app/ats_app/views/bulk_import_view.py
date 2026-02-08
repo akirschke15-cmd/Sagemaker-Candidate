@@ -130,7 +130,7 @@ def render_bulk_import():
         col1, col2 = st.columns(2)
 
         with col1:
-            st.markdown("**Required Fields**")
+            st.markdown("**Required Fields**", unsafe_allow_html=True)
             for field, config in SYSTEM_FIELDS.items():
                 if config['required']:
                     current_mapping = mapping.get(field)
@@ -152,7 +152,7 @@ def render_bulk_import():
                         mapping[field] = None
 
         with col2:
-            st.markdown("**Optional Fields**")
+            st.markdown("**Optional Fields**", unsafe_allow_html=True)
             for field, config in SYSTEM_FIELDS.items():
                 if not config['required']:
                     current_mapping = mapping.get(field)
@@ -229,7 +229,7 @@ def render_bulk_import():
                         st.caption(f"... and {len(validation['duplicates']) - 20} more duplicates")
 
         # Show preview
-        st.markdown("**Preview of Mapped Data (first 10 rows)**")
+        st.markdown("**Preview of Mapped Data (first 10 rows)**", unsafe_allow_html=True)
         preview_df = get_import_preview(df, mapping, max_rows=10)
         st.dataframe(preview_df, use_container_width=True)
 
@@ -328,7 +328,7 @@ def render_bulk_import():
             status_text = st.empty()
 
             def progress_callback(current, total):
-                progress = current / total
+                progress = current / total if total > 0 else 0
                 progress_bar.progress(progress)
                 status_text.text(f"Processing row {current} of {total}...")
 
@@ -368,7 +368,7 @@ def render_bulk_import():
                                 st.caption(f"... and {len(results['failed_rows']) - 20} more failed rows")
 
                         # Generate error report
-                        st.markdown("**Download Error Report**")
+                        st.markdown("**Download Error Report**", unsafe_allow_html=True)
                         error_csv = generate_error_report(results['failed_rows'])
 
                         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

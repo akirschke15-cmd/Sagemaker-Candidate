@@ -16,7 +16,7 @@ from mobile_scorecard import (
 )
 from genai import generate_interview_prep
 from auth import get_current_user, has_permission
-from views.utils import safe, section_header, avatar_badge, stage_badge, empty_state
+from views.utils import safe, section_header, avatar_badge, stage_badge, empty_state, _clean_html
 
 
 def render_scheduling():
@@ -106,10 +106,10 @@ def render_upcoming_interviews():
                     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
             <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 16px;">
                 <div>
-                    {avatar_badge(safe(candidate.get('name')), f"{time_str}")}
+                    {avatar_badge(candidate.get('name', 'Unknown'), f"{time_str}")}
                 </div>
                 <div>
-                    {stage_badge(interview.get('stage'))}
+                    {stage_badge(interview.get('stage', 'Unknown'))}
                 </div>
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; font-size: 14px;">
@@ -123,7 +123,7 @@ def render_upcoming_interviews():
                 </div>
                 {f'''<div>
                     <div style="color: #8B949E; margin-bottom: 4px;">Job</div>
-                    <div style="color: #FFFFFF;">{safe(job.get('title'))}</div>
+                    <div style="color: #FFFFFF;">{safe(job.get('title', 'N/A'))}</div>
                 </div>''' if job else ''}
                 <div>
                     <div style="color: #8B949E; margin-bottom: 4px;">Interviewer</div>
@@ -131,23 +131,23 @@ def render_upcoming_interviews():
                 </div>
                 {f'''<div>
                     <div style="color: #8B949E; margin-bottom: 4px;">Location</div>
-                    <div style="color: #FFFFFF;">{safe(interview.get('location'))}</div>
+                    <div style="color: #FFFFFF;">{safe(interview.get('location', ''))}</div>
                 </div>''' if interview.get('location') else ''}
                 {f'''<div>
                     <div style="color: #8B949E; margin-bottom: 4px;">Meeting Link</div>
-                    <div style="color: #304CB2;"><a href="{interview.get('meeting_link')}" target="_blank" style="color: #304CB2; text-decoration: none;">Join Meeting &#8599;</a></div>
+                    <div style="color: #304CB2;"><a href="{safe(interview.get('meeting_link', ''))}" target="_blank" rel="noopener noreferrer" style="color: #304CB2; text-decoration: none;">Join Meeting &#8599;</a></div>
                 </div>''' if interview.get('meeting_link') else ''}
             </div>
         </div>
         """
 
-        st.markdown(card_html, unsafe_allow_html=True)
+        st.markdown(_clean_html(card_html), unsafe_allow_html=True)
 
-        with st.expander(f"Actions for {safe(candidate.get('name'))}", expanded=False):
+        with st.expander(f"Actions for {candidate.get('name', 'Unknown')}", expanded=False):
             col1, col2 = st.columns([2, 1])
 
             with col2:
-                st.markdown("**Actions**")
+                st.markdown("**Actions**", unsafe_allow_html=True)
 
                 # ============ DOWNLOAD CALENDAR (ICS) ============
                 if st.button("📥 Download .ics", key=f"ics_{interview_id}", use_container_width=True):
@@ -238,7 +238,7 @@ def render_upcoming_interviews():
 
                                 if prep_result.get('success'):
                                     st.success("Interview prep generated!")
-                                    st.markdown("**Interview Prep Notes:**")
+                                    st.markdown("**Interview Prep Notes:**", unsafe_allow_html=True)
                                     st.markdown(prep_result.get('prep_notes', ''))
                                 else:
                                     st.error(prep_result.get('message', 'Failed to generate prep notes'))

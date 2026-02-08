@@ -14,7 +14,7 @@ from database import (
     get_candidate, get_candidates, get_jobs, get_contractor_roles
 )
 from auth import has_permission, get_current_user
-from views.utils import safe, section_header, kpi_row, metric_card, status_badge, avatar_badge, empty_state
+from views.utils import safe, section_header, kpi_row, metric_card, status_badge, avatar_badge, empty_state, _clean_html
 
 
 def render_contractors():
@@ -156,6 +156,8 @@ def render_active_contractors():
                     job_title = job['title']
 
             # Premium contract card
+            rate_html = metric_card("Rate", f"${contract.get('hourly_rate', 0):.2f}/hr", icon="&#128176;", color="#2EA043") if contract.get('hourly_rate') else ''
+
             card_html = f"""
             <div style="background: linear-gradient(135deg, #1A2332 0%, #0F1419 100%);
                         border: 1px solid rgba(48, 76, 178, 0.2);
@@ -168,7 +170,7 @@ def render_active_contractors():
                         {avatar_badge(safe(candidate['name']), safe(job_title) if job_title else "No job assigned")}
                     </div>
                     <div style="text-align: right;">
-                        {metric_card("Rate", f"${contract.get('hourly_rate', 0):.2f}/hr", icon="&#128176;", color="#2EA043") if contract.get('hourly_rate') else ''}
+                        {rate_html}
                     </div>
                 </div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; font-size: 14px;">
@@ -190,7 +192,7 @@ def render_active_contractors():
             </div>
             """
 
-            st.markdown(card_html, unsafe_allow_html=True)
+            st.markdown(_clean_html(card_html), unsafe_allow_html=True)
 
             with st.container():
                 col1, col2, col3, col4 = st.columns([3, 2, 2, 2])
@@ -287,7 +289,7 @@ def render_expiring_contracts():
 
             col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
             with col1:
-                st.markdown(f"{alert_level} **{safe(candidate['name'])}**")
+                st.markdown(f"{alert_level} **{safe(candidate['name'])}**", unsafe_allow_html=True)
             with col2:
                 st.caption(f"End Date: {contract['end_date']}")
             with col3:
@@ -308,7 +310,7 @@ def render_compliance_tracking():
     active_candidate_ids = {c['candidate_id'] for c in active_contracts}
 
     # Compliance alerts
-    alerts = get_compliance_alerts(days=30)
+    alerts = get_compliance_alerts()
     if alerts:
         st.warning(f"⚠️ {len(alerts)} compliance documents expiring in the next 30 days")
 
@@ -320,7 +322,7 @@ def render_compliance_tracking():
         for alert in alerts:
             candidate = alert_candidates_map.get(alert['candidate_id'])
             if candidate:
-                st.markdown(f"- **{safe(candidate['name'])}**: {safe(alert['doc_type'])} expires {alert['expiry_date']}")
+                st.markdown(f"- **{safe(candidate['name'])}**: {safe(alert['doc_type'])} expires {alert['expiry_date']}", unsafe_allow_html=True)
 
     st.divider()
 
@@ -360,7 +362,7 @@ def render_compliance_tracking():
                     st.rerun()
 
     # Compliance matrix
-    st.markdown("### Compliance Matrix")
+    st.markdown("### Compliance Matrix", unsafe_allow_html=True)
     matrix = get_compliance_matrix()
 
     if matrix:
@@ -384,7 +386,7 @@ def render_compliance_tracking():
                             'verified': '✅',
                             'expired': '❌'
                         }
-                        st.markdown(f"{status_icon.get(doc['status'], '⚪')} **{safe(doc['doc_type'])}**")
+                        st.markdown(f"{status_icon.get(doc['status'], '⚪')} **{safe(doc['doc_type'])}**", unsafe_allow_html=True)
                     with col2:
                         if doc.get('expiry_date'):
                             expiry = datetime.fromisoformat(doc['expiry_date'])
@@ -411,7 +413,7 @@ def render_past_contractors():
             col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
 
             with col1:
-                st.markdown(f"### {safe(contractor['name'])}")
+                st.markdown(f"### {safe(contractor['name'])}", unsafe_allow_html=True)
                 if contractor.get('email'):
                     st.caption(contractor['email'])
 
@@ -421,7 +423,7 @@ def render_past_contractors():
 
             with col3:
                 rehire_status = "✅ Eligible" if contractor.get('rehire_eligible', 1) else "❌ Not Eligible"
-                st.markdown(f"**Rehire Status:** {rehire_status}")
+                st.markdown(f"**Rehire Status:** {rehire_status}", unsafe_allow_html=True)
 
             with col4:
                 if has_permission('candidates', 'edit'):
@@ -438,7 +440,7 @@ def render_past_contractors():
             if history:
                 with st.expander(f"Contract History ({len(history)})"):
                     for h in history:
-                        st.markdown(f"- **{h['status']}**: {h['start_date']} → {h['end_date']} ({h.get('hourly_rate', 'N/A')}$/hr)")
+                        st.markdown(f"- **{h['status']}**: {h['start_date']} → {h['end_date']} ({h.get('hourly_rate', 'N/A')}$/hr)", unsafe_allow_html=True)
 
             st.divider()
 

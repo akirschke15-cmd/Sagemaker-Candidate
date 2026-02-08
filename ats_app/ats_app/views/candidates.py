@@ -35,7 +35,7 @@ from auth import get_current_user, get_visible_job_ids, can_view_all_candidates
 from views.utils import (
     get_stage_color, safe, get_stage_icon,
     metric_card, status_badge, stage_badge, section_header,
-    avatar_badge, progress_bar_html, pipeline_tracker, empty_state
+    avatar_badge, progress_bar_html, pipeline_tracker, empty_state, _clean_html
 )
 
 
@@ -157,16 +157,18 @@ def render_candidates():
     if not candidates:
         st.markdown(empty_state("No candidates found", "Try adjusting your filters", icon='&#128269;'), unsafe_allow_html=True)
     else:
-        # Table headers
+        # Table headers - aligned with new row layout
         st.markdown("""
         <div style='background: rgba(26,35,50,0.4); border-radius: 8px; padding: 12px 16px; margin-bottom: 8px;'>
-            <div style='display: grid; grid-template-columns: 50px 2fr 2fr 1.5fr 1.5fr 1fr; gap: 12px;'>
+            <div style='display: grid; grid-template-columns: 50px 11.5fr; gap: 12px;'>
                 <div style='color: rgba(255,255,255,0.6); font-size: 12px; font-weight: 600; text-transform: uppercase;'>Select</div>
-                <div style='color: rgba(255,255,255,0.6); font-size: 12px; font-weight: 600; text-transform: uppercase;'>Name</div>
-                <div style='color: rgba(255,255,255,0.6); font-size: 12px; font-weight: 600; text-transform: uppercase;'>Job</div>
-                <div style='color: rgba(255,255,255,0.6); font-size: 12px; font-weight: 600; text-transform: uppercase;'>Stage</div>
-                <div style='color: rgba(255,255,255,0.6); font-size: 12px; font-weight: 600; text-transform: uppercase;'>AI Score</div>
-                <div style='color: rgba(255,255,255,0.6); font-size: 12px; font-weight: 600; text-transform: uppercase;'>Rate</div>
+                <div style='display: grid; grid-template-columns: 2.5fr 2.5fr 2fr 2fr 1.5fr; gap: 12px;'>
+                    <div style='color: rgba(255,255,255,0.6); font-size: 12px; font-weight: 600; text-transform: uppercase;'>Name</div>
+                    <div style='color: rgba(255,255,255,0.6); font-size: 12px; font-weight: 600; text-transform: uppercase;'>Job</div>
+                    <div style='color: rgba(255,255,255,0.6); font-size: 12px; font-weight: 600; text-transform: uppercase;'>Stage</div>
+                    <div style='color: rgba(255,255,255,0.6); font-size: 12px; font-weight: 600; text-transform: uppercase;'>AI Score</div>
+                    <div style='color: rgba(255,255,255,0.6); font-size: 12px; font-weight: 600; text-transform: uppercase; text-align: center;'>Rate</div>
+                </div>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -199,42 +201,48 @@ def render_candidates():
             else:
                 rate_badge_html = "<span style='color: rgba(255,255,255,0.3);'>-</span>"
 
-            # Render candidate row card
-            st.markdown(f"""
-            <div style='background: rgba(26,35,50,0.6); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.06);
-            border-radius: 10px; padding: 16px; margin-bottom: 8px; transition: all 0.2s ease;
-            cursor: pointer;' onmouseover="this.style.borderColor='rgba(48,76,178,0.5)'" onmouseout="this.style.borderColor='rgba(255,255,255,0.06)'">
-                <div style='display: grid; grid-template-columns: 50px 2fr 2fr 1.5fr 1.5fr 1fr; gap: 12px; align-items: center;'>
-                    <div><!-- Checkbox placeholder --></div>
-                    <div>{avatar_badge(candidate_name, size='sm')}</div>
-                    <div style='color: rgba(255,255,255,0.8); font-size: 14px;'>{safe(job_title)}</div>
-                    <div>{stage_badge(stage)}</div>
-                    <div>{progress_bar_html(ai_score, 100, show_label=True) if ai_score > 0 else "<span style='color: rgba(255,255,255,0.4); font-size: 13px;'>Not scored</span>"}</div>
-                    <div>{rate_badge_html}</div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            # Create container for the row with proper layout
+            with st.container():
+                # Top row: Checkbox + Info Card
+                top_cols = st.columns([0.5, 11.5])
 
-            # Interactive elements in columns (checkbox and button)
-            row_cols = st.columns([0.5, 2, 2, 1.5, 1.5, 1])
+                with top_cols[0]:
+                    is_selected = candidate_id in st.session_state.get('comparison_candidates', [])
+                    if st.checkbox("", value=is_selected, key=f"select_{candidate_id}", label_visibility="collapsed"):
+                        if candidate_id not in st.session_state.comparison_candidates:
+                            if len(st.session_state.comparison_candidates) < 3:
+                                st.session_state.comparison_candidates.append(candidate_id)
+                            else:
+                                st.warning("Maximum 3 candidates can be compared")
+                                st.rerun()
+                    else:
+                        if candidate_id in st.session_state.comparison_candidates:
+                            st.session_state.comparison_candidates.remove(candidate_id)
 
-            with row_cols[0]:
-                is_selected = candidate_id in st.session_state.get('comparison_candidates', [])
-                if st.checkbox("", value=is_selected, key=f"select_{candidate_id}", label_visibility="collapsed"):
-                    if candidate_id not in st.session_state.comparison_candidates:
-                        if len(st.session_state.comparison_candidates) < 3:
-                            st.session_state.comparison_candidates.append(candidate_id)
-                        else:
-                            st.warning("Maximum 3 candidates can be compared")
-                            st.rerun()
-                else:
-                    if candidate_id in st.session_state.comparison_candidates:
-                        st.session_state.comparison_candidates.remove(candidate_id)
+                with top_cols[1]:
+                    # Render candidate info card
+                    st.markdown(_clean_html(f"""
+                    <div style='background: rgba(26,35,50,0.6); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.06);
+                    border-radius: 10px; padding: 16px; transition: all 0.2s ease;'
+                    onmouseover="this.style.borderColor='rgba(48,76,178,0.5)'" onmouseout="this.style.borderColor='rgba(255,255,255,0.06)'">
+                        <div style='display: grid; grid-template-columns: 2.5fr 2.5fr 2fr 2fr 1.5fr; gap: 12px; align-items: center;'>
+                            <div>{avatar_badge(candidate_name, size='sm')}</div>
+                            <div style='color: rgba(255,255,255,0.8); font-size: 14px;'>{safe(job_title)}</div>
+                            <div>{stage_badge(stage)}</div>
+                            <div>{progress_bar_html(ai_score, 100, show_label=True) if ai_score > 0 else "<span style='color: rgba(255,255,255,0.4); font-size: 13px;'>Not scored</span>"}</div>
+                            <div style='text-align: center;'>{rate_badge_html}</div>
+                        </div>
+                    </div>
+                    """), unsafe_allow_html=True)
 
-            with row_cols[1]:
-                if st.button("View", key=f"view_{candidate_id}", use_container_width=True):
-                    st.session_state.selected_candidate = candidate_id
-                    st.rerun()
+                # Bottom row: View button
+                bottom_cols = st.columns([10.5, 1.5])
+                with bottom_cols[1]:
+                    if st.button("View Profile", key=f"view_{candidate_id}", use_container_width=True):
+                        st.session_state.selected_candidate = candidate_id
+                        st.rerun()
+
+            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
         st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
         st.markdown(f"<div style='color: rgba(255,255,255,0.5); font-size: 13px; text-align: right;'>Total: {len(candidates)} candidates</div>", unsafe_allow_html=True)
@@ -336,7 +344,7 @@ def render_candidate_profile(candidate_id: int):
     ai_score = candidate.get('ai_resume_score', 0) or 0
 
     # Profile header card
-    st.markdown(f"""
+    st.markdown(_clean_html(f"""
     <div style='background: rgba(26,35,50,0.8); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.06);
     border-radius: 16px; padding: 32px; margin-bottom: 24px;'>
         <div style='display: flex; align-items: center; gap: 24px;'>
@@ -345,7 +353,7 @@ def render_candidate_profile(candidate_id: int):
             <div>{stage_badge(stage)}</div>
         </div>
     </div>
-    """, unsafe_allow_html=True)
+    """), unsafe_allow_html=True)
 
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
@@ -468,7 +476,7 @@ def render_candidate_profile(candidate_id: int):
                     st.markdown(metric_card("AI Resume Score", f"{ai_score:.0f}%", icon="&#129302;", color="#304CB2"), unsafe_allow_html=True)
                     if candidate.get('ai_resume_analysis'):
                         with st.expander("View Analysis"):
-                            st.markdown(candidate.get('ai_resume_analysis'))
+                            st.markdown(candidate.get('ai_resume_analysis'), unsafe_allow_html=True)
 
                 # Re-score button
                 if candidate.get('job_id') and candidate.get('resume_text'):
@@ -476,14 +484,11 @@ def render_candidate_profile(candidate_id: int):
                         with st.spinner("Analyzing resume..."):
                             job = get_job(candidate['job_id'])
                             if job:
-                                result = smart_score_resume(
+                                score, analysis = smart_score_resume(
                                     candidate.get('resume_text', ''),
                                     job.get('description', ''),
                                     job.get('requirements', '')
                                 )
-
-                                score = result.get('score', 0)
-                                analysis = result.get('analysis', '')
 
                                 update_candidate(
                                     candidate_id,
@@ -519,14 +524,14 @@ def render_candidate_profile(candidate_id: int):
                     # Criterion card
                     criterion_desc_html = f"<div style='color: rgba(255,255,255,0.5); font-size: 13px; margin-top: 4px;'>{safe(criterion.get('description', ''))}</div>" if criterion.get('description') else ''
 
-                    st.markdown(f"""
+                    st.markdown(_clean_html(f"""
                     <div style='background: rgba(26,35,50,0.6); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.06);
                     border-radius: 10px; padding: 16px; margin-bottom: 12px;'>
                         <div style='color: white; font-size: 15px; font-weight: 600;'>{safe(criterion_name)}</div>
                         {criterion_desc_html}
                         {progress_bar_html(existing_score if existing_score else 0, max_score, show_label=True) if existing_score else ''}
                     </div>
-                    """, unsafe_allow_html=True)
+                    """), unsafe_allow_html=True)
 
                     cols = st.columns([2, 1, 1])
                     with cols[1]:
@@ -652,16 +657,16 @@ def render_candidate_profile(candidate_id: int):
                 interviewer = note.get('interviewer', 'Unknown')
 
                 with st.expander(f"📝 {safe(note_stage)} - {note_date}", expanded=False):
-                    st.markdown(f"**Interviewer:** {interviewer}")
-                    st.markdown(note_text)
+                    st.markdown(f"**Interviewer:** {interviewer}", unsafe_allow_html=True)
+                    st.markdown(note_text, unsafe_allow_html=True)
 
                     if note.get('ai_summary'):
-                        st.markdown(f"""
+                        st.markdown(_clean_html(f"""
                         <div style='background: rgba(48,76,178,0.1); border-left: 3px solid #304CB2; padding: 12px; border-radius: 6px; margin-top: 12px;'>
                             <div style='color: #304CB2; font-weight: 600; font-size: 13px; margin-bottom: 6px;'>AI SUMMARY</div>
                             <div style='color: rgba(255,255,255,0.8); font-size: 14px;'>{safe(note.get('ai_summary'))}</div>
                         </div>
-                        """, unsafe_allow_html=True)
+                        """), unsafe_allow_html=True)
         else:
             st.markdown(empty_state("No stage history recorded", "Interview notes will appear here", icon='&#128221;'), unsafe_allow_html=True)
 
@@ -707,7 +712,7 @@ def render_candidate_profile(candidate_id: int):
                 note_id = note.get('id')
 
                 # Note card
-                st.markdown(f"""
+                st.markdown(_clean_html(f"""
                 <div style='background: rgba(26,35,50,0.6); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.06);
                 border-radius: 12px; padding: 20px; margin-bottom: 16px;'>
                     <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;'>
@@ -721,20 +726,20 @@ def render_candidate_profile(candidate_id: int):
                     </div>
                     <div style='color: rgba(255,255,255,0.9); font-size: 14px; line-height: 1.6; white-space: pre-wrap;'>{safe(note_text)}</div>
                 </div>
-                """, unsafe_allow_html=True)
+                """), unsafe_allow_html=True)
 
                 # AI Summary
                 if note.get('ai_summary'):
-                    st.markdown(f"""
+                    st.markdown(_clean_html(f"""
                     <div style='background: rgba(48,76,178,0.1); border-left: 3px solid #304CB2; padding: 16px; border-radius: 8px; margin-bottom: 16px;'>
                         <div style='color: #304CB2; font-weight: 600; font-size: 13px; margin-bottom: 8px;'>&#129302; AI SUMMARY</div>
                         <div style='color: rgba(255,255,255,0.9); font-size: 14px; line-height: 1.6;'>{safe(note.get('ai_summary'))}</div>
                     </div>
-                    """, unsafe_allow_html=True)
+                    """), unsafe_allow_html=True)
                 else:
                     if st.button("Generate AI Summary", key=f"ai_summary_{note_id}", type="secondary"):
                         with st.spinner("Generating summary..."):
-                            summary = smart_summarize_notes(note_text)
+                            summary = smart_summarize_notes(note_text, note_stage, candidate_name)
                             update_note_ai_summary(note_id, summary)
                             st.success("Summary generated!")
                             st.rerun()
@@ -749,17 +754,129 @@ def render_candidate_profile(candidate_id: int):
             if st.button("🤖 Generate Interview Prep", type="primary", use_container_width=True):
                 with st.spinner("Generating interview preparation..."):
                     job = get_job(candidate['job_id'])
+                    candidate_data = {
+                        'name': candidate.get('name'),
+                        'job_title': job.get('title'),
+                        'ai_resume_analysis': candidate.get('ai_resume_analysis'),
+                        'previous_notes': '\n'.join(
+                            n.get('notes', '') for n in get_stage_notes(candidate_id) if n.get('notes')
+                        ),
+                    }
                     prep = generate_interview_prep(
-                        candidate.get('resume_text', ''),
-                        job.get('description', ''),
+                        candidate_data,
                         candidate.get('current_stage', 'Resume Screen')
                     )
-                    st.markdown(f"""
+                    st.markdown(_clean_html(f"""
                     <div style='background: rgba(26,35,50,0.8); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.06);
                     border-radius: 12px; padding: 24px; margin-top: 16px;'>
                         <div style='color: rgba(255,255,255,0.9); font-size: 14px; line-height: 1.7;'>{prep}</div>
                     </div>
-                    """, unsafe_allow_html=True)
+                    """), unsafe_allow_html=True)
+
+        st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
+
+        # ============ AI INTERVIEW QUESTION GENERATION ============
+        if candidate.get('job_id') and candidate.get('resume_text'):
+            st.markdown("<div style='color: white; font-size: 20px; font-weight: 600; margin-bottom: 20px;'>AI Interview Questions</div>", unsafe_allow_html=True)
+
+            q_col1, q_col2 = st.columns([2, 1])
+            with q_col1:
+                question_stage = st.selectbox(
+                    "Interview Stage",
+                    ["Phone Screen", "Technical Interview", "Behavioral Interview"],
+                    key="ai_question_stage"
+                )
+            with q_col2:
+                num_questions = st.selectbox(
+                    "Number of Questions",
+                    [5, 8, 10, 12],
+                    index=1,
+                    key="ai_num_questions"
+                )
+
+            if st.button("🤖 Generate Interview Questions", type="primary", use_container_width=True, key="gen_questions_btn"):
+                with st.spinner("Generating tailored questions..."):
+                    job = get_job(candidate['job_id'])
+                    previous_notes_text = '\n'.join(
+                        n.get('notes', '') for n in get_stage_notes(candidate_id) if n.get('notes')
+                    )
+                    result = smart_generate_interview_questions(
+                        job_description=job.get('description', ''),
+                        job_requirements=job.get('requirements', ''),
+                        resume_text=candidate.get('resume_text', ''),
+                        stage=question_stage,
+                        previous_feedback=previous_notes_text or None,
+                        num_questions=num_questions
+                    )
+                    st.session_state['generated_questions'] = result
+                    st.session_state['generated_questions_stage'] = question_stage
+                    st.session_state['generated_questions_job_id'] = candidate['job_id']
+
+            # Display generated questions
+            if st.session_state.get('generated_questions') and st.session_state.get('generated_questions_job_id') == candidate.get('job_id'):
+                gen_result = st.session_state['generated_questions']
+                gen_stage = st.session_state.get('generated_questions_stage', 'Technical Interview')
+                questions = gen_result.get('questions', [])
+                areas = gen_result.get('areas_to_probe', [])
+                concerns = gen_result.get('resume_concerns', [])
+
+                category_colors = {
+                    'technical': '#304CB2',
+                    'behavioral': '#2EA043',
+                    'situational': '#F9B612',
+                    'experience': '#7C3AED',
+                    'culture_fit': '#0891B2',
+                }
+
+                if questions:
+                    st.markdown(f"<div style='color: rgba(255,255,255,0.6); font-size: 13px; margin-bottom: 16px;'>{len(questions)} questions generated for {safe(gen_stage)}</div>", unsafe_allow_html=True)
+
+                    for idx, q in enumerate(questions):
+                        q_text = q.get('question', '')
+                        q_category = q.get('category', 'technical')
+                        q_probe = q.get('probing_area', '')
+                        cat_color = category_colors.get(q_category, '#304CB2')
+                        cat_label = q_category.replace('_', ' ').title()
+
+                        st.markdown(_clean_html(f"""
+                        <div style='background: rgba(26,35,50,0.6); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.06);
+                        border-radius: 12px; padding: 20px; margin-bottom: 12px;'>
+                            <div style='display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;'>
+                                <div style='color: rgba(255,255,255,0.4); font-size: 12px; font-weight: 600;'>Q{idx + 1}</div>
+                                <div style='background: {cat_color}22; color: {cat_color}; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; border: 1px solid {cat_color}44;'>{safe(cat_label)}</div>
+                            </div>
+                            <div style='color: rgba(255,255,255,0.95); font-size: 14px; line-height: 1.6; margin-bottom: 10px;'>{safe(q_text)}</div>
+                            <div style='color: rgba(255,255,255,0.45); font-size: 12px;'>Probing: {safe(q_probe)}</div>
+                        </div>
+                        """), unsafe_allow_html=True)
+
+                        if st.button("Save to Question Bank", key=f"save_q_{idx}", type="secondary"):
+                            save_interview_question(
+                                job_id=candidate['job_id'],
+                                stage=gen_stage,
+                                question=q_text,
+                                category=q_category,
+                                probing_area=q_probe
+                            )
+                            st.success(f"Question {idx + 1} saved!")
+
+                # Areas to Probe
+                if areas:
+                    st.markdown(_clean_html(f"""
+                    <div style='background: rgba(48,76,178,0.1); border-left: 3px solid #304CB2; padding: 16px; border-radius: 8px; margin-top: 16px; margin-bottom: 12px;'>
+                        <div style='color: #304CB2; font-weight: 600; font-size: 13px; margin-bottom: 10px;'>&#127919; Areas to Probe</div>
+                        {''.join(f"<div style='color: rgba(255,255,255,0.8); font-size: 13px; line-height: 1.8; padding-left: 8px;'>&bull; {safe(a)}</div>" for a in areas)}
+                    </div>
+                    """), unsafe_allow_html=True)
+
+                # Resume Concerns
+                if concerns:
+                    st.markdown(_clean_html(f"""
+                    <div style='background: rgba(200,16,46,0.08); border-left: 3px solid #C8102E; padding: 16px; border-radius: 8px; margin-bottom: 12px;'>
+                        <div style='color: #C8102E; font-weight: 600; font-size: 13px; margin-bottom: 10px;'>&#9888;&#65039; Resume Concerns</div>
+                        {''.join(f"<div style='color: rgba(255,255,255,0.8); font-size: 13px; line-height: 1.8; padding-left: 8px;'>&bull; {safe(c)}</div>" for c in concerns)}
+                    </div>
+                    """), unsafe_allow_html=True)
 
     # ============ TAB 4: MULTI-ROLE MATCHING ============
     with tabs[3]:
@@ -780,7 +897,7 @@ def render_candidate_profile(candidate_id: int):
 
                 status_color = '#2EA043' if role_status == 'Active' else '#C8102E'
 
-                st.markdown(f"""
+                st.markdown(_clean_html(f"""
                 <div style='background: rgba(26,35,50,0.6); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.06);
                 border-radius: 12px; padding: 20px; margin-bottom: 16px;'>
                     <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;'>
@@ -794,7 +911,7 @@ def render_candidate_profile(candidate_id: int):
                         Status: {status_badge(role_status, status_color, 'outlined')}
                     </div>
                 </div>
-                """, unsafe_allow_html=True)
+                """), unsafe_allow_html=True)
 
                 job_cols = st.columns([3, 1, 1])
                 with job_cols[1]:
@@ -856,7 +973,7 @@ def render_candidate_profile(candidate_id: int):
 
                 contract_notes_html = f"<div style='color: rgba(255,255,255,0.7); font-size: 13px; margin-top: 8px;'>{safe(contract.get('notes'))}</div>" if contract.get('notes') else ''
 
-                st.markdown(f"""
+                st.markdown(_clean_html(f"""
                 <div style='background: rgba(26,35,50,0.6); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.06);
                 border-radius: 12px; padding: 20px; margin-bottom: 16px;'>
                     <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;'>
@@ -873,7 +990,7 @@ def render_candidate_profile(candidate_id: int):
                     </div>
                     {contract_notes_html}
                 </div>
-                """, unsafe_allow_html=True)
+                """), unsafe_allow_html=True)
         else:
             st.markdown(empty_state("No contracts recorded", "Contract information will appear here", icon='&#128203;'), unsafe_allow_html=True)
 
@@ -901,7 +1018,7 @@ def render_candidate_profile(candidate_id: int):
                 expiry_html = f"<div style='color: rgba(255,255,255,0.7); font-size: 13px;'><span style='opacity: 0.6;'>Expires:</span> {safe(expiry_date)}</div>" if expiry_date != 'N/A' else ''
                 received_html = f"<div style='color: rgba(255,255,255,0.7); font-size: 13px;'><span style='opacity: 0.6;'>Received:</span> {safe(received_date)}</div>" if received_date != 'N/A' else ''
 
-                st.markdown(f"""
+                st.markdown(_clean_html(f"""
                 <div style='background: rgba(26,35,50,0.6); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.06);
                 border-radius: 12px; padding: 20px; margin-bottom: 16px;'>
                     <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;'>
@@ -915,7 +1032,7 @@ def render_candidate_profile(candidate_id: int):
                         <div>{expiry_html}</div>
                     </div>
                 </div>
-                """, unsafe_allow_html=True)
+                """), unsafe_allow_html=True)
         else:
             st.markdown(empty_state("No compliance documents", "Add compliance documentation", icon='&#128196;'), unsafe_allow_html=True)
 

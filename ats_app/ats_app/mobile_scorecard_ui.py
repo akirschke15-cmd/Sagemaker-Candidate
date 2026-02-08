@@ -9,6 +9,7 @@ from mobile_scorecard import (
     validate_scorecard_token, submit_mobile_scorecard,
     get_recommendation_options
 )
+from views.utils import _clean_html
 
 
 # JavaScript for auto-save and unsaved changes warning
@@ -239,7 +240,7 @@ def render_mobile_scorecard(token: str):
     """, unsafe_allow_html=True)
 
     # Header
-    st.markdown(f"""
+    st.markdown(_clean_html(f"""
     <div class="scorecard-header">
         <h1>Interview Scorecard</h1>
         <div class="candidate-name">{interview_data['candidate_name']}</div>
@@ -248,7 +249,7 @@ def render_mobile_scorecard(token: str):
             {interview_data['job_title']}
         </div>
     </div>
-    """, unsafe_allow_html=True)
+    """), unsafe_allow_html=True)
 
     # Initialize session state for form data
     if 'scorecard_scores' not in st.session_state:
@@ -280,11 +281,11 @@ def render_mobile_scorecard(token: str):
     # AI Analysis (if available)
     if interview_data.get('ai_resume_analysis'):
         with st.expander("View AI Resume Analysis", expanded=False):
-            st.markdown(f"""
+            st.markdown(_clean_html(f"""
             <div class="ai-analysis-card">
                 {interview_data['ai_resume_analysis']}
             </div>
-            """, unsafe_allow_html=True)
+            """), unsafe_allow_html=True)
 
     # Scoring Section
     st.markdown("### Scoring Criteria")
@@ -293,11 +294,11 @@ def render_mobile_scorecard(token: str):
 
     if criteria:
         for c in criteria:
-            st.markdown(f"""
+            st.markdown(_clean_html(f"""
             <div class="star-rating-container">
                 <div class="star-rating-label">{c['criteria_name']}</div>
             </div>
-            """, unsafe_allow_html=True)
+            """), unsafe_allow_html=True)
 
             # Use slider for touch-friendly scoring
             score = st.slider(
@@ -346,11 +347,11 @@ def render_mobile_scorecard(token: str):
         st.session_state.scorecard_recommendation = selected_rec
         # Show selected recommendation with color
         rec_color = next((r[2] for r in recommendations if r[0] == selected_rec), "#666")
-        st.markdown(f"""
+        st.markdown(_clean_html(f"""
         <div class="rec-selected" style="background: {rec_color}20; border-left: 4px solid {rec_color};">
             <strong style="color: {rec_color};">Selected: {selected_rec}</strong>
         </div>
-        """, unsafe_allow_html=True)
+        """), unsafe_allow_html=True)
 
     st.markdown("---")
 

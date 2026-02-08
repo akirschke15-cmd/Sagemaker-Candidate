@@ -16,6 +16,17 @@ def safe(value):
     return html_escape(str(value))
 
 
+def _clean_html(html: str) -> str:
+    """Remove blank lines from HTML to prevent Markdown code-block misinterpretation.
+
+    In Markdown, a blank line inside an HTML block ends the block. Subsequent
+    indented content then becomes a code block, showing raw tags as text.
+    This helper strips blank lines so the HTML stays in a single block.
+    """
+    lines = html.split('\n')
+    return '\n'.join(line for line in lines if line.strip())
+
+
 def get_stage_color(stage: str) -> str:
     """Stage colors using Southwest Airlines brand palette"""
     colors = {
@@ -62,6 +73,7 @@ def premium_css() -> str:
     _CACHED_CSS = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200');
 
     /* ============================================ */
     /* DESIGN TOKENS (CSS Variables)               */
@@ -125,8 +137,16 @@ def premium_css() -> str:
     /* ============================================ */
     /* GLOBAL RESETS & BASE STYLES                 */
     /* ============================================ */
-    * {
-        font-family: var(--font-sans) !important;
+    /* Apply Inter font to content elements, but NOT to Streamlit's internal icon spans */
+    body, p, div, span, a, li, ul, ol, h1, h2, h3, h4, h5, h6,
+    input, textarea, select, button, label, th, td,
+    .stMarkdown, .stText, .stButton, .stTextInput, .stSelectbox,
+    .stMultiSelect, .stTextArea, .stMetric, .stAlert,
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] div,
+    [data-testid="stSidebar"] button,
+    [data-testid="stSidebar"] label {
+        font-family: var(--font-sans);
     }
 
     .stApp,
@@ -137,10 +157,16 @@ def premium_css() -> str:
         background-color: var(--bg-primary) !important;
     }
 
-    /* Remove default Streamlit branding */
+    /* Remove default Streamlit branding (keep sidebar collapse/expand controls) */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    header {visibility: hidden;}
+    [data-testid="stHeader"] {
+        background: transparent !important;
+    }
+    /* Keep the sidebar expand button visible when sidebar is collapsed */
+    [data-testid="collapsedControl"] {
+        visibility: visible !important;
+    }
 
     /* ============================================ */
     /* SIDEBAR STYLING                             */
@@ -179,9 +205,9 @@ def premium_css() -> str:
         border-color: rgba(255, 255, 255, 0.15) !important;
     }
 
-    /* Hide Streamlit sidebar collapse arrow text */
+    /* Sidebar collapse button */
     [data-testid="collapsedControl"] {
-        display: none !important;
+        color: var(--text-secondary) !important;
     }
 
     /* ============================================ */
@@ -200,7 +226,28 @@ def premium_css() -> str:
         background-clip: text;
     }
 
-    p, span, div {
+    /* Apply text color to main content text only - not component internals */
+    .stMarkdown p:not(.metric-label):not(.metric-value):not(.kpi-label):not(.kpi-value),
+    .stText {
+        color: var(--text-secondary) !important;
+    }
+
+    /* Ensure component text keeps proper colors */
+    .metric-value,
+    .kpi-value,
+    .section-header-title,
+    .avatar-name,
+    .empty-state-message,
+    .progress-label-right {
+        color: var(--text-primary) !important;
+    }
+
+    .metric-label,
+    .kpi-label,
+    .section-header-subtitle,
+    .avatar-subtitle,
+    .empty-state-submessage,
+    .progress-label-left {
         color: var(--text-secondary) !important;
     }
 
@@ -347,8 +394,11 @@ def premium_css() -> str:
     .stage-badge {
         display: inline-flex;
         align-items: center;
+        justify-content: center;
         gap: 0.375rem;
-        padding: 0.5rem 1rem;
+        padding: 0.375rem 0.875rem;
+        min-width: 160px;
+        min-height: 32px;
         border-radius: var(--radius-full);
         font-size: 0.8125rem;
         font-weight: 600;
@@ -356,6 +406,8 @@ def premium_css() -> str:
         color: white;
         border: 1px solid rgba(255, 255, 255, 0.2);
         transition: all var(--transition-fast);
+        white-space: nowrap;
+        box-sizing: border-box;
     }
 
     .stage-badge:hover {
@@ -588,7 +640,7 @@ def premium_css() -> str:
     .kpi-icon {
         font-size: 2rem;
         margin-bottom: 0.75rem;
-        filter: drop-shadow(0 0 8px rgba(48, 76, 178, 0.4));
+        /* No fixed filter - color is set inline per KPI */
     }
 
     .kpi-value {
@@ -829,26 +881,107 @@ def premium_css() -> str:
         background: rgba(255, 255, 255, 0.03) !important;
     }
 
-    /* Expanders */
-    .streamlit-expanderHeader {
+    /* ============================================ */
+    /* EXPANDER STYLING & ICON FIX                 */
+    /* ============================================ */
+
+    /* Expander header styling */
+    .streamlit-expanderHeader,
+    [data-testid="stExpander"] summary {
         background: var(--bg-surface) !important;
         border: 1px solid var(--border-default) !important;
         border-radius: var(--radius-md) !important;
         color: var(--text-primary) !important;
         font-weight: 600 !important;
         transition: all var(--transition-fast) !important;
+        padding-left: 2.5rem !important;
+        position: relative !important;
+        min-height: 2.75rem !important;
+        display: flex !important;
+        align-items: center !important;
     }
 
-    .streamlit-expanderHeader:hover {
+    .streamlit-expanderHeader:hover,
+    [data-testid="stExpander"] summary:hover {
         background: var(--bg-surface-hover) !important;
         border-color: var(--border-emphasis) !important;
     }
 
-    .streamlit-expanderContent {
+    /* Expander content styling */
+    .streamlit-expanderContent,
+    [data-testid="stExpander"] [data-testid="stExpanderDetails"] {
         background: var(--bg-surface) !important;
         border: 1px solid var(--border-default) !important;
         border-top: none !important;
         border-radius: 0 0 var(--radius-md) var(--radius-md) !important;
+    }
+
+    /* Hide browser default details marker */
+    details summary::-webkit-details-marker,
+    details summary::marker {
+        display: none !important;
+    }
+
+    /* Hide Streamlit's broken icon elements (Material Icons text showing as "arrow_right", etc) */
+    [data-testid="stExpander"] summary svg,
+    [data-testid="stExpander"] summary [data-testid*="icon"],
+    [data-testid="stExpander"] summary [class*="icon"],
+    [data-testid="stExpander"] summary > div:first-child,
+    [data-testid="stExpander"] summary > span:first-of-type:empty,
+    .streamlit-expanderHeader svg,
+    .streamlit-expanderHeader [class*="icon"],
+    .streamlit-expanderHeader > div:first-child,
+    .streamlit-expanderHeader > span:first-of-type:empty {
+        display: none !important;
+        visibility: hidden !important;
+        position: absolute !important;
+        left: -9999px !important;
+        width: 0 !important;
+        height: 0 !important;
+        overflow: hidden !important;
+        font-size: 0 !important;
+        line-height: 0 !important;
+        opacity: 0 !important;
+    }
+
+    /* Add custom CSS arrow icon to replace broken Material Icons */
+    .streamlit-expanderHeader::before,
+    [data-testid="stExpander"] summary::before {
+        content: '▶' !important;
+        position: absolute !important;
+        left: 1rem !important;
+        top: 50% !important;
+        transform: translateY(-50%) !important;
+        font-size: 0.875rem !important;
+        color: var(--text-secondary) !important;
+        transition: transform var(--transition-fast) !important;
+        display: inline-block !important;
+        line-height: 1 !important;
+        z-index: 10 !important;
+    }
+
+    /* Rotate arrow when expander is open */
+    details[open] .streamlit-expanderHeader::before,
+    details[open] > summary::before,
+    [data-testid="stExpander"][open] summary::before {
+        transform: translateY(-50%) rotate(90deg) !important;
+    }
+
+    /* Ensure expander label text remains visible */
+    .streamlit-expanderHeader p,
+    .streamlit-expanderHeader strong,
+    .streamlit-expanderHeader span:not(:first-of-type),
+    .streamlit-expanderHeader div:not(:first-child),
+    [data-testid="stExpander"] summary p,
+    [data-testid="stExpander"] summary strong,
+    [data-testid="stExpander"] summary span:not(:first-of-type),
+    [data-testid="stExpander"] summary div:not(:first-child) {
+        visibility: visible !important;
+        opacity: 1 !important;
+        font-size: inherit !important;
+        position: relative !important;
+        display: inline !important;
+        line-height: inherit !important;
     }
 
     /* Alerts */
@@ -982,22 +1115,26 @@ def metric_card(label: str, value: str, delta=None, icon=None, color='#304CB2') 
     """
     delta_html = ''
     if delta:
-        direction = delta.get('direction', 'up')
-        delta_value = safe(delta.get('value', ''))
+        if isinstance(delta, dict):
+            direction = delta.get('direction', 'up')
+            delta_value = safe(delta.get('value', ''))
+        else:
+            direction = 'up'
+            delta_value = safe(str(delta))
         arrow = '↑' if direction == 'up' else '↓'
         delta_class = 'positive' if direction == 'up' else 'negative'
         delta_html = f'<div class="metric-delta {delta_class}">{arrow} {delta_value}</div>'
 
     icon_html = f'<div class="metric-icon">{icon}</div>' if icon else ''
 
-    return f"""
+    return _clean_html(f"""
     <div class="metric-card-premium" style="--metric-color: {color};">
         {icon_html}
         <div class="metric-label">{safe(label)}</div>
         <div class="metric-value">{safe(value)}</div>
         {delta_html}
     </div>
-    """
+    """)
 
 
 def status_badge(text: str, color=None, variant='filled') -> str:
@@ -1026,9 +1163,9 @@ def status_badge(text: str, color=None, variant='filled') -> str:
         else:
             color = '#304CB2'
 
-    return f"""
+    return _clean_html(f"""
     <span class="status-badge {variant}" style="--badge-color: {color};">{safe(text)}</span>
-    """
+    """)
 
 
 def stage_badge(stage: str) -> str:
@@ -1044,11 +1181,11 @@ def stage_badge(stage: str) -> str:
     color = get_stage_color(stage)
     icon = get_stage_icon(stage)
 
-    return f"""
+    return _clean_html(f"""
     <span class="stage-badge" style="--stage-color: {color};">
         {icon} {safe(stage)}
     </span>
-    """
+    """)
 
 
 def section_header(title: str, subtitle=None, action_hint=None) -> str:
@@ -1066,7 +1203,7 @@ def section_header(title: str, subtitle=None, action_hint=None) -> str:
     subtitle_html = f'<div class="section-header-subtitle">{safe(subtitle)}</div>' if subtitle else ''
     action_html = f'<div class="section-header-action">{safe(action_hint)}</div>' if action_hint else ''
 
-    return f"""
+    return _clean_html(f"""
     <div class="section-header">
         <div>
             <h3 class="section-header-title">{safe(title)}</h3>
@@ -1074,42 +1211,73 @@ def section_header(title: str, subtitle=None, action_hint=None) -> str:
         </div>
         {action_html}
     </div>
-    """
+    """)
 
 
-def pipeline_tracker(stages: list, current_stage: str, show_icons=True) -> str:
+def pipeline_tracker(stages: list, current_stage: str = None, show_icons=True, stage_counts: dict = None) -> str:
     """
     Connected dot pipeline visualization with animations.
 
     Args:
         stages: List of stage names in order
-        current_stage: Name of the current stage
-        show_icons: Whether to show stage icons
+        current_stage: Name of the current stage (for single-candidate view)
+        show_icons: Whether to show stage icons (always True now for all stages)
+        stage_counts: Dict of {stage_name: count} - stages with count > 0 glow
 
     Returns:
         HTML string for pipeline tracker
     """
-    try:
-        current_index = stages.index(current_stage)
-    except ValueError:
-        current_index = 0
+    # Determine current index for single-candidate mode
+    current_index = -1
+    if current_stage:
+        try:
+            current_index = stages.index(current_stage)
+        except ValueError:
+            current_index = 0
 
-    progress_percent = (current_index / (len(stages) - 1)) * 100 if len(stages) > 1 else 0
+    # Calculate progress line
+    if current_index >= 0 and len(stages) > 1:
+        progress_percent = (current_index / (len(stages) - 1)) * 100
+    elif stage_counts:
+        # Find the furthest stage with candidates for progress line
+        furthest = -1
+        for i, stage in enumerate(stages):
+            if stage_counts.get(stage, 0) > 0:
+                furthest = i
+        progress_percent = (furthest / (len(stages) - 1)) * 100 if furthest >= 0 and len(stages) > 1 else 0
+    else:
+        progress_percent = 0
 
     stage_htmls = []
     for i, stage in enumerate(stages):
-        if i < current_index:
-            status = 'completed'
-            icon = '✓'
-        elif i == current_index:
-            status = 'current'
-            icon = get_stage_icon(stage) if show_icons else '●'
+        icon = get_stage_icon(stage) if show_icons else '●'
+        color = get_stage_color(stage)
+        count = stage_counts.get(stage, 0) if stage_counts else 0
+
+        if current_stage:
+            # Single-candidate mode: completed / current / upcoming
+            if i < current_index:
+                status = 'completed'
+            elif i == current_index:
+                status = 'current'
+            else:
+                status = 'upcoming'
+                color = '#6E7681'
+        elif stage_counts:
+            # Overview mode: glow stages that have candidates
+            if count > 0:
+                status = 'current'
+            else:
+                status = 'upcoming'
+                color = '#6E7681'
         else:
             status = 'upcoming'
-            icon = '○'
+            color = '#6E7681'
 
-        color = get_stage_color(stage) if status in ['completed', 'current'] else '#6E7681'
         label_class = 'current' if status == 'current' else ''
+
+        # Show count badge in overview mode
+        count_html = f'<div style="color: var(--text-muted); font-size: 0.7rem; margin-top: 0.25rem;">{count}</div>' if stage_counts and count > 0 else ''
 
         stage_htmls.append(f"""
         <div class="pipeline-stage">
@@ -1117,17 +1285,18 @@ def pipeline_tracker(stages: list, current_stage: str, show_icons=True) -> str:
                 {icon}
             </div>
             <div class="pipeline-label {label_class}">{safe(stage)}</div>
+            {count_html}
         </div>
         """)
 
-    return f"""
+    return _clean_html(f"""
     <div class="pipeline-tracker">
         <div class="pipeline-line">
             <div class="pipeline-line-progress" style="width: {progress_percent}%;"></div>
         </div>
         {''.join(stage_htmls)}
     </div>
-    """
+    """)
 
 
 def empty_state(message: str, submessage=None, icon='&#128269;') -> str:
@@ -1144,13 +1313,13 @@ def empty_state(message: str, submessage=None, icon='&#128269;') -> str:
     """
     submessage_html = f'<div class="empty-state-submessage">{safe(submessage)}</div>' if submessage else ''
 
-    return f"""
+    return _clean_html(f"""
     <div class="empty-state">
         <div class="empty-state-icon">{icon}</div>
         <div class="empty-state-message">{safe(message)}</div>
         {submessage_html}
     </div>
-    """
+    """)
 
 
 def avatar_badge(name: str, subtitle=None, size='md') -> str:
@@ -1184,7 +1353,7 @@ def avatar_badge(name: str, subtitle=None, size='md') -> str:
 
     subtitle_html = f'<div class="avatar-subtitle">{safe(subtitle)}</div>' if subtitle else ''
 
-    return f"""
+    return _clean_html(f"""
     <div class="avatar-badge">
         <div class="avatar-circle" style="--avatar-size: {avatar_size}; --avatar-gradient: {gradient};">
             {initials}
@@ -1194,7 +1363,7 @@ def avatar_badge(name: str, subtitle=None, size='md') -> str:
             {subtitle_html}
         </div>
     </div>
-    """
+    """)
 
 
 def kpi_row(items: list) -> str:
@@ -1219,11 +1388,11 @@ def kpi_row(items: list) -> str:
         </div>
         """)
 
-    return f"""
+    return _clean_html(f"""
     <div class="kpi-row">
         {''.join(kpi_htmls)}
     </div>
-    """
+    """)
 
 
 def data_table_css() -> str:
@@ -1266,12 +1435,12 @@ def progress_bar_html(value: float, max_value=100, color=None, height='8px', sho
         </div>
         """
 
-    return f"""
+    return _clean_html(f"""
     <div class="progress-bar-container" style="--progress-height: {height};">
         <div class="progress-bar-fill" style="width: {percent}%; --progress-color: {color_start}; --progress-color-end: {color_end};"></div>
     </div>
     {label_html}
-    """
+    """)
 
 
 def card_grid_open(columns=3) -> str:

@@ -4,7 +4,7 @@ Vendors view - Simple CRUD for vendor management
 import streamlit as st
 from database import get_vendors, create_vendor, get_vendor, get_candidates
 from auth import has_permission, get_current_user
-from views.utils import safe, section_header, kpi_row, avatar_badge, metric_card, empty_state
+from views.utils import safe, section_header, kpi_row, avatar_badge, metric_card, empty_state, _clean_html
 
 
 def render_vendors():
@@ -120,7 +120,7 @@ def render_vendor_card(vendor: dict, all_candidates: list):
     </div>
     """
 
-    st.markdown(card_html, unsafe_allow_html=True)
+    st.markdown(_clean_html(card_html), unsafe_allow_html=True)
 
     with st.container():
         col1, col2, col3 = st.columns([3, 2, 1])
@@ -139,28 +139,28 @@ def render_vendor_card(vendor: dict, all_candidates: list):
         # Expandable details section
         if st.session_state.get(f'show_vendor_{vendor["id"]}'):
             with st.container():
-                st.markdown("---")
+                st.markdown("---", unsafe_allow_html=True)
 
                 # Vendor info
                 if vendor.get('notes'):
-                    st.markdown("**Notes:**")
-                    st.markdown(vendor['notes'])
+                    st.markdown("**Notes:**", unsafe_allow_html=True)
+                    st.markdown(vendor['notes'], unsafe_allow_html=True)
 
                 st.caption(f"Created: {vendor.get('created_at', 'N/A')}")
 
                 # Candidate list from this vendor
                 if vendor_candidates:
-                    st.markdown(f"**Candidates from {safe(vendor['name'])}:**")
+                    st.markdown(f"**Candidates from {safe(vendor['name'])}:**", unsafe_allow_html=True)
 
                     # Group by status
                     active_candidates = [c for c in vendor_candidates if c.get('status') == 'Active']
                     inactive_candidates = [c for c in vendor_candidates if c.get('status') != 'Active']
 
                     if active_candidates:
-                        st.markdown("*Active:*")
+                        st.markdown("*Active:*", unsafe_allow_html=True)
                         for candidate in active_candidates[:10]:  # Show first 10
                             stage = candidate.get('current_stage', 'Unknown')
-                            st.markdown(f"- {safe(candidate['name'])} ({safe(stage)})")
+                            st.markdown(f"- {safe(candidate['name'])} ({safe(stage)})", unsafe_allow_html=True)
 
                         if len(active_candidates) > 10:
                             st.caption(f"...and {len(active_candidates) - 10} more")
@@ -170,7 +170,7 @@ def render_vendor_card(vendor: dict, all_candidates: list):
                             for candidate in inactive_candidates:
                                 stage = candidate.get('current_stage', 'Unknown')
                                 status = candidate.get('status', 'Unknown')
-                                st.markdown(f"- {safe(candidate['name'])} ({safe(stage)} - {status})")
+                                st.markdown(f"- {safe(candidate['name'])} ({safe(stage)} - {status})", unsafe_allow_html=True)
                 else:
                     st.info("No candidates from this vendor yet")
 
