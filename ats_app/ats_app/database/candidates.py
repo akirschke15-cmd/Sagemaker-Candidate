@@ -78,13 +78,14 @@ def get_candidate(candidate_id: int) -> Optional[Dict]:
 
 def update_candidate(candidate_id: int, **kwargs):
     ALLOWED_COLUMNS = {'name', 'email', 'phone', 'vendor_id', 'job_id', 'current_stage', 'status', 'resume_text', 'resume_path', 'resume_original_filename', 'ai_resume_score', 'ai_resume_analysis', 'ai_interview_prep', 'ai_interview_questions', 'notes', 'updated_at', 'expected_hourly_rate', 'is_past_contractor', 'last_contract_end', 'rehire_eligible', 'rehire_notes'}
+    kwargs['updated_at'] = datetime.now().isoformat()
+    filtered = {k: v for k, v in kwargs.items() if k in ALLOWED_COLUMNS}
     invalid_cols = set(kwargs.keys()) - ALLOWED_COLUMNS
     if invalid_cols:
         raise ValueError(f"Invalid column names: {invalid_cols}")
     with db_session() as conn:
-        kwargs['updated_at'] = datetime.now().isoformat()
-        set_clause = ", ".join(f"{k} = ?" for k in kwargs.keys())
-        conn.execute(f"UPDATE candidates SET {set_clause} WHERE id = ?", (*kwargs.values(), candidate_id))
+        set_clause = ", ".join(f"{k} = ?" for k in filtered.keys())
+        conn.execute(f"UPDATE candidates SET {set_clause} WHERE id = ?", (*filtered.values(), candidate_id))
     invalidate_candidate_caches()
 
 
@@ -110,20 +111,21 @@ def batch_update_candidates(updates: List[Dict]):
 
             candidate_id = update.pop('id')
 
-            # Validate column names
+            # Add updated_at before allowlist check
+            update['updated_at'] = now
+
+            # Filter kwargs through allowlist and validate
+            filtered = {k: v for k, v in update.items() if k in ALLOWED_COLUMNS}
             invalid_cols = set(update.keys()) - ALLOWED_COLUMNS
             if invalid_cols:
                 raise ValueError(f"Invalid column names: {invalid_cols}")
 
-            if not update:
+            if not filtered:
                 continue  # Skip if no fields to update
 
-            # Add updated_at
-            update['updated_at'] = now
-
             # Build and execute update
-            set_clause = ", ".join(f"{k} = ?" for k in update.keys())
-            conn.execute(f"UPDATE candidates SET {set_clause} WHERE id = ?", (*update.values(), candidate_id))
+            set_clause = ", ".join(f"{k} = ?" for k in filtered.keys())
+            conn.execute(f"UPDATE candidates SET {set_clause} WHERE id = ?", (*filtered.values(), candidate_id))
 
 
 def advance_candidate(candidate_id: int, new_stage: str):

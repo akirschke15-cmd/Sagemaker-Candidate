@@ -567,27 +567,31 @@ def render_candidate_profile(candidate_id: int):
                 if st.button("Process Resume", type="primary"):
                     with st.spinner("Processing resume..."):
                         # Validate file size
-                        if not validate_file_size(uploaded_file):
-                            st.error("File size exceeds maximum limit")
+                        size_error = validate_file_size(uploaded_file)
+                        if size_error:
+                            st.error(size_error)
                         else:
                             # Save file
-                            file_path = save_resume_file(uploaded_file, candidate_id)
+                            file_path, save_error = save_resume_file(candidate_id, uploaded_file.getvalue(), uploaded_file.name)
 
-                            # Parse resume
-                            resume_text = parse_resume(file_path)
-
-                            if resume_text:
-                                # Update candidate
-                                update_candidate(
-                                    candidate_id,
-                                    resume_text=resume_text,
-                                    resume_path=file_path,
-                                    resume_original_filename=uploaded_file.name
-                                )
-                                st.success("Resume uploaded successfully!")
-                                st.rerun()
+                            if save_error:
+                                st.error(save_error)
                             else:
-                                st.error("Failed to parse resume")
+                                # Parse resume
+                                resume_text, parse_warnings = parse_resume(uploaded_file.getvalue(), uploaded_file.name)
+
+                                if resume_text:
+                                    # Update candidate
+                                    update_candidate(
+                                        candidate_id,
+                                        resume_text=resume_text,
+                                        resume_path=file_path,
+                                        resume_original_filename=uploaded_file.name
+                                    )
+                                    st.success("Resume uploaded successfully!")
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to parse resume")
 
         with resume_cols[1]:
             # Current resume info
@@ -604,7 +608,7 @@ def render_candidate_profile(candidate_id: int):
                     st.markdown(metric_card("AI Resume Score", f"{ai_score:.0f}%", icon="&#129302;", color="#304CB2"), unsafe_allow_html=True)
                     if candidate.get('ai_resume_analysis'):
                         with st.expander("View Analysis"):
-                            st.markdown(candidate.get('ai_resume_analysis'), unsafe_allow_html=True)
+                            st.markdown(candidate.get('ai_resume_analysis'))
 
                 # Re-score button
                 if candidate.get('resume_text'):
@@ -790,8 +794,8 @@ def render_candidate_profile(candidate_id: int):
                 interviewer = note.get('interviewer', 'Unknown')
 
                 with st.expander(f"📝 {safe(note_stage)} - {note_date}", expanded=False):
-                    st.markdown(f"**Interviewer:** {interviewer}", unsafe_allow_html=True)
-                    st.markdown(note_text, unsafe_allow_html=True)
+                    st.markdown(f"**Interviewer:** {safe(interviewer)}", unsafe_allow_html=True)
+                    st.markdown(safe(note_text), unsafe_allow_html=True)
 
                     if note.get('ai_summary'):
                         st.markdown(_clean_html(f"""

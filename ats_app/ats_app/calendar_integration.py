@@ -4,17 +4,116 @@ Phase 1: ICS file generation for interview events
 Future Phases: Google Calendar OAuth, Microsoft 365 OAuth integration
 """
 import uuid
+import base64
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Tuple
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_meeting_link(url: str) -> str:
+    """Validate meeting link URL scheme. Returns sanitized URL or empty string."""
+    if not url:
+        return ""
+    parsed = urlparse(url)
+    if parsed.scheme in ('https', 'http') and parsed.hostname:
+        return url
+    logger.warning(f"Invalid meeting link scheme rejected: {parsed.scheme}")
+    return ""
 
 # ICS file constants following RFC 5545 standard
 ICS_VERSION = "2.0"
 ICS_PRODID = "-//Agentic Program ATS//Interview Scheduling//EN"
 ICS_CALSCALE = "GREGORIAN"
 ICS_METHOD = "REQUEST"
+
+# Salt used for PBKDF2 key derivation (fixed so the same secret always produces
+# the same Fernet key; this is intentional — the secrecy comes from
+# SESSION_SECRET_KEY, not from a random salt).
+_KDF_SALT = b"ats_calendar_token_v1"
+_KDF_ITERATIONS = 100_000
+
+
+def _get_fernet():
+    """
+    Build and return a Fernet instance whose key is derived from
+    SESSION_SECRET_KEY via PBKDF2-HMAC-SHA256.
+
+    Fernet requires a 32-byte key that is base64url-encoded (44 chars).
+    We derive that 32-byte material from the application secret so no
+    additional key-management config is needed.
+    """
+    from cryptography.fernet import Fernet
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.backends import default_backend
+    from config import settings
+
+    secret = settings.SESSION_SECRET_KEY or "default-insecure-key-set-SESSION_SECRET_KEY"
+    secret_bytes = secret.encode("utf-8")
+
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=_KDF_SALT,
+        iterations=_KDF_ITERATIONS,
+        backend=default_backend(),
+    )
+    key_material = kdf.derive(secret_bytes)
+    # Fernet expects a base64url-encoded 32-byte key
+    fernet_key = base64.urlsafe_b64encode(key_material)
+    return Fernet(fernet_key)
+
+
+def _encrypt_token(plaintext: str) -> str:
+    """
+    Encrypt a token string using Fernet symmetric encryption.
+
+    Args:
+        plaintext: The raw token string to encrypt.
+
+    Returns:
+        A base64-encoded ciphertext string suitable for database storage.
+    """
+    if not plaintext:
+        return plaintext
+    fernet = _get_fernet()
+    ciphertext_bytes = fernet.encrypt(plaintext.encode("utf-8"))
+    # Store as a regular string — Fernet output is already URL-safe base64
+    return ciphertext_bytes.decode("utf-8")
+
+
+def _decrypt_token(ciphertext: str) -> str:
+    """
+    Decrypt a Fernet-encrypted token string read from the database.
+
+    Handles the migration case where a token was stored in plaintext before
+    encryption was introduced: if decryption fails (InvalidToken / ValueError)
+    the raw value is returned as-is so the caller can continue using it and
+    re-encrypt it on the next write.
+
+    Args:
+        ciphertext: The stored token string (may be encrypted or plaintext).
+
+    Returns:
+        The decrypted plaintext token, or the original value if it was not
+        encrypted.
+    """
+    if not ciphertext:
+        return ciphertext
+    try:
+        from cryptography.fernet import Fernet, InvalidToken
+        fernet = _get_fernet()
+        return fernet.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
+    except Exception:
+        # Token is likely stored as plaintext (pre-encryption migration).
+        # Return as-is; the next save will encrypt it.
+        logger.debug(
+            "Token decryption failed — treating as plaintext (legacy record)."
+        )
+        return ciphertext
 
 
 def escape_ics_text(text: str) -> str:
@@ -291,8 +390,9 @@ def generate_ics_event(
 
     # Build location
     location_parts = []
-    if interview.get('meeting_link'):
-        location_parts.append(interview['meeting_link'])
+    validated_link = _validate_meeting_link(interview.get('meeting_link', ''))
+    if validated_link:
+        location_parts.append(validated_link)
     if interview.get('location'):
         location_parts.append(interview['location'])
     location = " | ".join(location_parts) if location_parts else "TBD"
@@ -450,6 +550,131 @@ def init_calendar_tables():
         CREATE INDEX IF NOT EXISTS idx_calendar_events_interview ON calendar_events(interview_id);
         CREATE INDEX IF NOT EXISTS idx_calendar_events_ics_uid ON calendar_events(ics_uid);
         """)
+
+
+def save_calendar_integration(
+    provider: str,
+    access_token: str,
+    refresh_token: str = None,
+    token_expires_at: str = None,
+    calendar_id: str = None,
+) -> int:
+    """
+    Persist an OAuth integration record to calendar_integrations.
+
+    access_token and refresh_token are encrypted at rest before storage.
+
+    Args:
+        provider: OAuth provider name (e.g. "google", "outlook").
+        access_token: Raw OAuth access token — will be encrypted.
+        refresh_token: Raw OAuth refresh token — will be encrypted if provided.
+        token_expires_at: ISO datetime string for token expiry.
+        calendar_id: Provider-specific calendar identifier.
+
+    Returns:
+        ID of the inserted calendar_integrations row.
+    """
+    from database import db_session
+
+    encrypted_access = _encrypt_token(access_token)
+    encrypted_refresh = _encrypt_token(refresh_token) if refresh_token else None
+
+    with db_session() as conn:
+        cursor = conn.execute("""
+            INSERT INTO calendar_integrations
+                (provider, calendar_id, access_token, refresh_token, token_expires_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (provider, calendar_id, encrypted_access, encrypted_refresh, token_expires_at))
+        return cursor.lastrowid
+
+
+def update_calendar_integration_tokens(
+    integration_id: int,
+    access_token: str,
+    refresh_token: str = None,
+    token_expires_at: str = None,
+):
+    """
+    Update OAuth tokens for an existing calendar_integrations row.
+
+    Tokens are re-encrypted before storage, providing an automatic migration
+    path for any legacy plaintext tokens: callers that read via
+    get_calendar_integration (which decrypts) and then call this function will
+    cause the tokens to be stored encrypted.
+
+    Args:
+        integration_id: Row ID in calendar_integrations.
+        access_token: New raw access token — will be encrypted.
+        refresh_token: New raw refresh token — will be encrypted if provided.
+        token_expires_at: ISO datetime string for updated token expiry.
+    """
+    from database import db_session
+
+    encrypted_access = _encrypt_token(access_token)
+    encrypted_refresh = _encrypt_token(refresh_token) if refresh_token else None
+
+    with db_session() as conn:
+        conn.execute("""
+            UPDATE calendar_integrations
+            SET access_token = ?,
+                refresh_token = ?,
+                token_expires_at = ?
+            WHERE id = ?
+        """, (encrypted_access, encrypted_refresh, token_expires_at, integration_id))
+
+
+def get_calendar_integration(integration_id: int) -> Optional[Dict]:
+    """
+    Retrieve a calendar integration record, decrypting the stored tokens.
+
+    If a token was stored as plaintext (before encryption was introduced) the
+    _decrypt_token helper transparently returns it as-is, so this function
+    always yields usable token values regardless of the storage format.
+
+    Args:
+        integration_id: Row ID in calendar_integrations.
+
+    Returns:
+        Dict with all columns and decrypted access_token / refresh_token,
+        or None if the row does not exist.
+    """
+    from database import db_session
+
+    with db_session() as conn:
+        row = conn.execute("""
+            SELECT * FROM calendar_integrations WHERE id = ?
+        """, (integration_id,)).fetchone()
+
+    if not row:
+        return None
+
+    record = dict(row)
+    record["access_token"] = _decrypt_token(record.get("access_token") or "")
+    record["refresh_token"] = _decrypt_token(record.get("refresh_token") or "") or None
+    return record
+
+
+def get_active_calendar_integrations() -> list:
+    """
+    Return all active calendar integration records with decrypted tokens.
+
+    Returns:
+        List of dicts with decrypted access_token / refresh_token fields.
+    """
+    from database import db_session
+
+    with db_session() as conn:
+        rows = conn.execute("""
+            SELECT * FROM calendar_integrations WHERE is_active = 1
+        """).fetchall()
+
+    result = []
+    for row in rows:
+        record = dict(row)
+        record["access_token"] = _decrypt_token(record.get("access_token") or "")
+        record["refresh_token"] = _decrypt_token(record.get("refresh_token") or "") or None
+        result.append(record)
+    return result
 
 
 def save_calendar_event(interview_id: int, ics_uid: str, integration_id: int = None,

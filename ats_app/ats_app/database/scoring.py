@@ -157,13 +157,14 @@ def get_saved_question(question_id: int) -> Dict:
 def update_saved_question(question_id: int, **kwargs):
     """Update a saved question."""
     ALLOWED_COLUMNS = {'job_id', 'stage', 'question', 'category', 'probing_area', 'is_standard'}
+    filtered = {k: v for k, v in kwargs.items() if k in ALLOWED_COLUMNS}
     invalid_cols = set(kwargs.keys()) - ALLOWED_COLUMNS
     if invalid_cols:
         raise ValueError(f"Invalid column names: {invalid_cols}")
     with db_session() as conn:
-        set_clause = ", ".join(f"{k} = ?" for k in kwargs.keys())
+        set_clause = ", ".join(f"{k} = ?" for k in filtered.keys())
         conn.execute(f"UPDATE saved_questions SET {set_clause} WHERE id = ?",
-                    (*kwargs.values(), question_id))
+                    (*filtered.values(), question_id))
 
 
 def delete_saved_question(question_id: int):

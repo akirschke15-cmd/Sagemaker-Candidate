@@ -65,7 +65,7 @@ try:
 
         # API
         API_KEY: str = ""
-        API_HOST: str = "0.0.0.0"
+        API_HOST: str = "127.0.0.1"
         API_PORT: int = 8000
 
         # Caching
@@ -137,7 +137,7 @@ except ImportError:
 
             # API
             self.API_KEY = os.environ.get('API_KEY', '')
-            self.API_HOST = os.environ.get('API_HOST', '0.0.0.0')
+            self.API_HOST = os.environ.get('API_HOST', '127.0.0.1')
             self.API_PORT = int(os.environ.get('API_PORT', '8000'))
 
             # Caching
@@ -148,3 +148,11 @@ except ImportError:
 
 # Singleton instance
 settings = Settings()
+
+# Startup security warnings
+import logging as _logging
+_startup_logger = _logging.getLogger(__name__)
+if not settings.API_KEY:
+    _startup_logger.warning("API_KEY is not configured. The REST API will reject all requests. Set API_KEY in .env.")
+if not settings.SESSION_SECRET_KEY and not settings.DEV_MODE:
+    _startup_logger.warning("SESSION_SECRET_KEY not configured. Sessions will be invalidated on restart. Set SESSION_SECRET_KEY in .env.")

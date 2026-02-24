@@ -99,14 +99,15 @@ def update_webhook(webhook_id: int, **kwargs) -> bool:
         True if updated successfully
     """
     ALLOWED_COLUMNS = {'platform', 'webhook_url', 'channel_name', 'job_id', 'is_active', 'last_success', 'last_failure', 'failure_count', 'updated_at'}
+    kwargs['updated_at'] = datetime.now().isoformat()
+    filtered = {k: v for k, v in kwargs.items() if k in ALLOWED_COLUMNS}
     invalid_cols = set(kwargs.keys()) - ALLOWED_COLUMNS
     if invalid_cols:
         raise ValueError(f"Invalid column names: {invalid_cols}")
     with db_session() as conn:
-        kwargs['updated_at'] = datetime.now().isoformat()
-        set_clause = ", ".join(f"{k} = ?" for k in kwargs.keys())
+        set_clause = ", ".join(f"{k} = ?" for k in filtered.keys())
         conn.execute(f"UPDATE notification_webhooks SET {set_clause} WHERE id = ?",
-                    (*kwargs.values(), webhook_id))
+                    (*filtered.values(), webhook_id))
         return True
 
 

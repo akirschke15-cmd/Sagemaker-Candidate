@@ -453,7 +453,9 @@ def save_resume_file(candidate_id: int, file_bytes: bytes, filename: str) -> Tup
             resolved_upload_dir = UPLOAD_DIR.resolve()
 
             # Check if the resolved path is within the upload directory
-            if not str(resolved_path).startswith(str(resolved_upload_dir)):
+            try:
+                resolved_path.relative_to(resolved_upload_dir)
+            except ValueError:
                 logger.error(f"Path traversal attempt detected: {filename}")
                 return None, "Invalid file path"
 

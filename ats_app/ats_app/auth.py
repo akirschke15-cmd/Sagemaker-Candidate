@@ -13,6 +13,8 @@ import hmac
 import secrets
 import hashlib
 
+from rate_limiter import LoginRateLimiter
+
 # Try to import bcrypt, fallback to hashlib+secrets
 try:
     import bcrypt
@@ -115,8 +117,8 @@ def validate_session_token(token: str) -> Optional[int]:
         timestamp = int(timestamp_str)
         token_age_hours = (datetime.now().timestamp() - timestamp) / 3600
 
-        # Allow tokens up to 30 days old (as long as session hasn't expired)
-        if token_age_hours > 720:  # 30 days
+        # Allow tokens up to 24 hours old (as long as session hasn't expired)
+        if token_age_hours > 24:
             logger.warning(f"Session token too old: {token_age_hours:.1f} hours")
             return None
 
@@ -245,7 +247,7 @@ def verify_password(password: str, password_hash: str) -> bool:
                 salt.encode('utf-8'),
                 100000
             )
-            return new_hash.hex() == stored_hash
+            return hmac.compare_digest(new_hash.hex(), stored_hash)
         else:
             logger.error(f"Unknown password hash format: {password_hash[:10]}")
             return False
@@ -264,8 +266,8 @@ def validate_password_strength(password: str) -> Tuple[bool, str]:
     Returns:
         Tuple of (is_valid, error_message)
     """
-    if len(password) < 8:
-        return False, "Password must be at least 8 characters long"
+    if len(password) < 12:
+        return False, "Password must be at least 12 characters long"
 
     if not any(c.isupper() for c in password):
         return False, "Password must contain at least one uppercase letter"
@@ -275,6 +277,9 @@ def validate_password_strength(password: str) -> Tuple[bool, str]:
 
     if not any(c.isdigit() for c in password):
         return False, "Password must contain at least one digit"
+
+    if not any(c in '!@#$%^&*()_+-=[]{}|;:,.<>?' for c in password):
+        return False, "Password must contain at least one special character"
 
     return True, ""
 
@@ -291,22 +296,30 @@ def login_with_password(email: str, password: str) -> bool:
         True if login successful, False otherwise
     """
     try:
-        user = get_user_by_email(email)
-        if not user:
-            logger.warning(f"AUTH_FAILURE: Login attempt for non-existent user: {email}, timestamp: {datetime.now().isoformat()}")
+        # Rate limit check
+        allowed, retry_after = LoginRateLimiter.check(email)
+        if not allowed:
+            logger.warning(f"AUTH_RATE_LIMITED: {email}, retry_after={retry_after}s, timestamp: {datetime.now().isoformat()}")
             return False
 
-        if not user.get('is_active'):
-            logger.warning(f"AUTH_FAILURE: Login attempt for inactive user: {email}, timestamp: {datetime.now().isoformat()}")
+        # Dummy hash for timing equalization when user not found
+        _DUMMY_HASH = "bcrypt:$2b$12$LJ3m4ys3Lg3aIjOCFUXkHuJMBiSsqd53kDk2GQplaCT.1RrHm7jVG"
+
+        user = get_user_by_email(email)
+        if not user or not user.get('is_active'):
+            # Equalize timing — run password verification against dummy hash
+            verify_password(password, _DUMMY_HASH)
+            logger.warning(f"AUTH_FAILURE: Login failed for: {email}, timestamp: {datetime.now().isoformat()}")
             return False
 
         password_hash = user.get('password_hash')
         if not password_hash:
-            logger.warning(f"AUTH_FAILURE: User {email} has no password hash, timestamp: {datetime.now().isoformat()}")
+            verify_password(password, _DUMMY_HASH)
+            logger.warning(f"AUTH_FAILURE: Login failed for: {email}, timestamp: {datetime.now().isoformat()}")
             return False
 
         if not verify_password(password, password_hash):
-            logger.warning(f"AUTH_FAILURE: Invalid password for user: {email}, timestamp: {datetime.now().isoformat()}")
+            logger.warning(f"AUTH_FAILURE: Login failed for: {email}, timestamp: {datetime.now().isoformat()}")
             return False
 
         # Set user session with HMAC token

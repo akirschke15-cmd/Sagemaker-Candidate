@@ -116,13 +116,14 @@ def update_automation_rule(rule_id: int, **kwargs) -> bool:
         True if updated successfully
     """
     ALLOWED_COLUMNS = {'job_id', 'from_stage', 'to_stage', 'template_id', 'is_enabled', 'delay_minutes'}
+    filtered = {k: v for k, v in kwargs.items() if k in ALLOWED_COLUMNS}
     invalid_cols = set(kwargs.keys()) - ALLOWED_COLUMNS
     if invalid_cols:
         raise ValueError(f"Invalid column names: {invalid_cols}")
     with db_session() as conn:
-        set_clause = ", ".join(f"{k} = ?" for k in kwargs.keys())
+        set_clause = ", ".join(f"{k} = ?" for k in filtered.keys())
         conn.execute(f"UPDATE email_automation_rules SET {set_clause} WHERE id = ?",
-                    (*kwargs.values(), rule_id))
+                    (*filtered.values(), rule_id))
         return True
 
 

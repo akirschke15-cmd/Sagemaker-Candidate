@@ -44,13 +44,14 @@ def get_contractor_role(role_id: int) -> Optional[Dict]:
 def update_contractor_role(role_id: int, **kwargs) -> bool:
     """Update a contractor role."""
     ALLOWED_COLUMNS = {'name', 'description', 'min_hourly_rate', 'max_hourly_rate', 'is_active'}
+    filtered = {k: v for k, v in kwargs.items() if k in ALLOWED_COLUMNS}
     invalid_cols = set(kwargs.keys()) - ALLOWED_COLUMNS
     if invalid_cols:
         raise ValueError(f"Invalid column names: {invalid_cols}")
     with db_session() as conn:
-        set_clause = ", ".join(f"{k} = ?" for k in kwargs.keys())
+        set_clause = ", ".join(f"{k} = ?" for k in filtered.keys())
         conn.execute(f"UPDATE contractor_roles SET {set_clause} WHERE id = ?",
-                    (*kwargs.values(), role_id))
+                    (*filtered.values(), role_id))
         return True
 
 
@@ -332,13 +333,14 @@ def get_contract(contract_id: int) -> Optional[Dict]:
 def update_contract(contract_id: int, **kwargs) -> bool:
     """Update contract fields."""
     ALLOWED_COLUMNS = {'candidate_id', 'job_id', 'start_date', 'end_date', 'hourly_rate', 'status', 'extension_of', 'notes'}
+    filtered = {k: v for k, v in kwargs.items() if k in ALLOWED_COLUMNS}
     invalid_cols = set(kwargs.keys()) - ALLOWED_COLUMNS
     if invalid_cols:
         raise ValueError(f"Invalid column names: {invalid_cols}")
     with db_session() as conn:
-        set_clause = ", ".join(f"{k} = ?" for k in kwargs.keys())
+        set_clause = ", ".join(f"{k} = ?" for k in filtered.keys())
         conn.execute(f"UPDATE contracts SET {set_clause} WHERE id = ?",
-                    (*kwargs.values(), contract_id))
+                    (*filtered.values(), contract_id))
         return True
 
 
@@ -602,13 +604,14 @@ def get_compliance_doc(doc_id: int) -> Optional[Dict]:
 def update_compliance_doc(doc_id: int, **kwargs) -> bool:
     """Update compliance document fields."""
     ALLOWED_COLUMNS = {'candidate_id', 'doc_type', 'status', 'received_date', 'expiry_date', 'file_path', 'notes'}
+    filtered = {k: v for k, v in kwargs.items() if k in ALLOWED_COLUMNS}
     invalid_cols = set(kwargs.keys()) - ALLOWED_COLUMNS
     if invalid_cols:
         raise ValueError(f"Invalid column names: {invalid_cols}")
     with db_session() as conn:
-        set_clause = ", ".join(f"{k} = ?" for k in kwargs.keys())
+        set_clause = ", ".join(f"{k} = ?" for k in filtered.keys())
         conn.execute(f"UPDATE compliance_documents SET {set_clause} WHERE id = ?",
-                    (*kwargs.values(), doc_id))
+                    (*filtered.values(), doc_id))
         return True
 
 

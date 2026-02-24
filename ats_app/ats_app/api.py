@@ -4,17 +4,20 @@ FastAPI REST API for ATS Application
 Provides REST endpoints for candidate tracking, job management, interview scheduling,
 and analytics. Can run alongside the Streamlit app.
 """
-from fastapi import FastAPI, HTTPException, Depends, Header, Query
+from fastapi import FastAPI, HTTPException, Depends, Header, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 from datetime import datetime
+import logging
+import os
 
 from config import settings
 from database import (
     # Candidates
     create_candidate, get_candidates, get_candidate, update_candidate,
     advance_candidate, reject_candidate,
+    STAGES,
     # Jobs
     create_job, get_jobs, get_job, update_job,
     # Interviews
@@ -24,6 +27,10 @@ from database import (
     # Connection
     get_connection
 )
+from rate_limiter import APIRateLimiter
+
+logger = logging.getLogger(__name__)
+VALID_STAGES = set(STAGES)
 
 # ============ FastAPI App ============
 app = FastAPI(
@@ -32,24 +39,37 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS middleware for cross-origin access
+# CORS middleware — restrict origins in production
+_allowed_origins = os.environ.get("ALLOWED_ORIGINS", "http://localhost:8501").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=_allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=["Authorization", "X-API-Key", "Content-Type"],
 )
 
 
 # ============ Security ============
 async def verify_api_key(x_api_key: Optional[str] = Header(None)):
-    """Verify API key if configured"""
-    if settings.API_KEY:  # If API_KEY is set, require authentication
-        if not x_api_key or x_api_key != settings.API_KEY:
-            raise HTTPException(status_code=401, detail="Invalid or missing API key")
-    # If API_KEY is empty, skip authentication (dev mode)
+    """Verify API key — fail closed when not configured"""
+    if not settings.API_KEY:
+        raise HTTPException(status_code=503, detail="API authentication not configured")
+    if not x_api_key or x_api_key != settings.API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
     return True
+
+
+async def rate_limit_dependency(request: Request):
+    """Rate limit API requests"""
+    identifier = request.headers.get("x-api-key") or request.client.host or "anonymous"
+    allowed, retry_after = APIRateLimiter.check(identifier)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests",
+            headers={"Retry-After": str(retry_after)}
+        )
 
 
 # ============ Pydantic Models ============
@@ -160,22 +180,16 @@ class PaginatedResponse(BaseModel):
 async def health_check():
     """Health check endpoint with database status"""
     try:
-        # Test database connection
         with get_connection() as conn:
             conn.execute("SELECT 1").fetchone()
-        db_status = "healthy"
-    except Exception as e:
-        db_status = f"unhealthy: {str(e)}"
-
-    return {
-        "status": "ok" if db_status == "healthy" else "degraded",
-        "timestamp": datetime.now().isoformat(),
-        "database": db_status
-    }
+        return {"status": "ok", "timestamp": datetime.now().isoformat()}
+    except Exception:
+        logger.exception("Health check: database connection failed")
+        return {"status": "degraded", "timestamp": datetime.now().isoformat()}
 
 
 # ============ Candidate Endpoints ============
-@app.get("/api/candidates", dependencies=[Depends(verify_api_key)])
+@app.get("/api/candidates", dependencies=[Depends(verify_api_key), Depends(rate_limit_dependency)])
 async def list_candidates(
     status: Optional[str] = Query("Active", description="Filter by status"),
     job_id: Optional[int] = Query(None, description="Filter by job ID"),
@@ -199,10 +213,11 @@ async def list_candidates(
             "offset": offset
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching candidates: {str(e)}")
+        logger.exception("Error fetching candidates")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.get("/api/candidates/{candidate_id}", dependencies=[Depends(verify_api_key)])
+@app.get("/api/candidates/{candidate_id}", dependencies=[Depends(verify_api_key), Depends(rate_limit_dependency)])
 async def get_candidate_detail(candidate_id: int):
     """Get candidate details by ID"""
     try:
@@ -213,10 +228,11 @@ async def get_candidate_detail(candidate_id: int):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching candidate: {str(e)}")
+        logger.exception("Error fetching candidate")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.post("/api/candidates", dependencies=[Depends(verify_api_key)], status_code=201)
+@app.post("/api/candidates", dependencies=[Depends(verify_api_key), Depends(rate_limit_dependency)], status_code=201)
 async def create_candidate_endpoint(candidate: CandidateCreate):
     """Create a new candidate"""
     try:
@@ -233,10 +249,11 @@ async def create_candidate_endpoint(candidate: CandidateCreate):
         created = get_candidate(candidate_id)
         return created
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error creating candidate: {str(e)}")
+        logger.exception("Error creating candidate")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.patch("/api/candidates/{candidate_id}", dependencies=[Depends(verify_api_key)])
+@app.patch("/api/candidates/{candidate_id}", dependencies=[Depends(verify_api_key), Depends(rate_limit_dependency)])
 async def update_candidate_endpoint(candidate_id: int, candidate: CandidateUpdate):
     """Update candidate fields"""
     try:
@@ -260,13 +277,18 @@ async def update_candidate_endpoint(candidate_id: int, candidate: CandidateUpdat
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error updating candidate: {str(e)}")
+        logger.exception("Error updating candidate")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.post("/api/candidates/{candidate_id}/advance", dependencies=[Depends(verify_api_key)])
+@app.post("/api/candidates/{candidate_id}/advance", dependencies=[Depends(verify_api_key), Depends(rate_limit_dependency)])
 async def advance_candidate_endpoint(candidate_id: int, new_stage: str = Query(..., description="New stage name")):
     """Advance candidate to next stage"""
     try:
+        # Validate stage
+        if new_stage not in VALID_STAGES:
+            raise HTTPException(status_code=422, detail=f"Invalid stage. Must be one of: {', '.join(STAGES)}")
+
         # Check if candidate exists
         existing = get_candidate(candidate_id)
         if not existing:
@@ -281,10 +303,11 @@ async def advance_candidate_endpoint(candidate_id: int, new_stage: str = Query(.
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error advancing candidate: {str(e)}")
+        logger.exception("Error advancing candidate")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.post("/api/candidates/{candidate_id}/reject", dependencies=[Depends(verify_api_key)])
+@app.post("/api/candidates/{candidate_id}/reject", dependencies=[Depends(verify_api_key), Depends(rate_limit_dependency)])
 async def reject_candidate_endpoint(candidate_id: int):
     """Reject candidate"""
     try:
@@ -302,21 +325,23 @@ async def reject_candidate_endpoint(candidate_id: int):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error rejecting candidate: {str(e)}")
+        logger.exception("Error rejecting candidate")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ============ Job Endpoints ============
-@app.get("/api/jobs", dependencies=[Depends(verify_api_key)])
+@app.get("/api/jobs", dependencies=[Depends(verify_api_key), Depends(rate_limit_dependency)])
 async def list_jobs(status: Optional[str] = Query(None, description="Filter by status")):
     """List jobs with optional status filter"""
     try:
         jobs = get_jobs(status=status)
         return jobs
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching jobs: {str(e)}")
+        logger.exception("Error fetching jobs")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.get("/api/jobs/{job_id}", dependencies=[Depends(verify_api_key)])
+@app.get("/api/jobs/{job_id}", dependencies=[Depends(verify_api_key), Depends(rate_limit_dependency)])
 async def get_job_detail(job_id: int):
     """Get job details with stats"""
     try:
@@ -335,10 +360,11 @@ async def get_job_detail(job_id: int):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching job: {str(e)}")
+        logger.exception("Error fetching job")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.post("/api/jobs", dependencies=[Depends(verify_api_key)], status_code=201)
+@app.post("/api/jobs", dependencies=[Depends(verify_api_key), Depends(rate_limit_dependency)], status_code=201)
 async def create_job_endpoint(job: JobCreate):
     """Create a new job"""
     try:
@@ -354,10 +380,11 @@ async def create_job_endpoint(job: JobCreate):
         created = get_job(job_id)
         return created
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error creating job: {str(e)}")
+        logger.exception("Error creating job")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.patch("/api/jobs/{job_id}", dependencies=[Depends(verify_api_key)])
+@app.patch("/api/jobs/{job_id}", dependencies=[Depends(verify_api_key), Depends(rate_limit_dependency)])
 async def update_job_endpoint(job_id: int, job: JobUpdate):
     """Update job fields"""
     try:
@@ -381,11 +408,12 @@ async def update_job_endpoint(job_id: int, job: JobUpdate):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error updating job: {str(e)}")
+        logger.exception("Error updating job")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ============ Interview Endpoints ============
-@app.get("/api/interviews", dependencies=[Depends(verify_api_key)])
+@app.get("/api/interviews", dependencies=[Depends(verify_api_key), Depends(rate_limit_dependency)])
 async def list_interviews(
     upcoming_only: bool = Query(False, description="Only return upcoming interviews")
 ):
@@ -394,10 +422,11 @@ async def list_interviews(
         interviews = get_interviews(upcoming_only=upcoming_only)
         return interviews
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching interviews: {str(e)}")
+        logger.exception("Error fetching interviews")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.post("/api/interviews", dependencies=[Depends(verify_api_key)], status_code=201)
+@app.post("/api/interviews", dependencies=[Depends(verify_api_key), Depends(rate_limit_dependency)], status_code=201)
 async def schedule_interview_endpoint(interview: InterviewCreate):
     """Schedule a new interview"""
     try:
@@ -431,11 +460,12 @@ async def schedule_interview_endpoint(interview: InterviewCreate):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error scheduling interview: {str(e)}")
+        logger.exception("Error scheduling interview")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ============ Analytics Endpoints ============
-@app.get("/api/analytics/pipeline", dependencies=[Depends(verify_api_key)])
+@app.get("/api/analytics/pipeline", dependencies=[Depends(verify_api_key), Depends(rate_limit_dependency)])
 async def get_pipeline_analytics(job_id: Optional[int] = Query(None, description="Filter by job ID")):
     """Get pipeline statistics by stage"""
     try:
@@ -446,10 +476,11 @@ async def get_pipeline_analytics(job_id: Optional[int] = Query(None, description
             "total_active": sum(stats.values())
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching pipeline stats: {str(e)}")
+        logger.exception("Error fetching pipeline stats")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.get("/api/analytics/velocity", dependencies=[Depends(verify_api_key)])
+@app.get("/api/analytics/velocity", dependencies=[Depends(verify_api_key), Depends(rate_limit_dependency)])
 async def get_velocity_analytics(job_id: Optional[int] = Query(None, description="Filter by job ID")):
     """Get pipeline velocity (days in each stage)"""
     try:
@@ -459,10 +490,11 @@ async def get_velocity_analytics(job_id: Optional[int] = Query(None, description
             "velocity_by_stage": velocity
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching velocity stats: {str(e)}")
+        logger.exception("Error fetching velocity stats")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.get("/api/analytics/conversion", dependencies=[Depends(verify_api_key)])
+@app.get("/api/analytics/conversion", dependencies=[Depends(verify_api_key), Depends(rate_limit_dependency)])
 async def get_conversion_analytics(job_id: Optional[int] = Query(None, description="Filter by job ID")):
     """Get stage conversion rates"""
     try:
@@ -472,7 +504,8 @@ async def get_conversion_analytics(job_id: Optional[int] = Query(None, descripti
             "conversion_rates": conversion
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching conversion rates: {str(e)}")
+        logger.exception("Error fetching conversion rates")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ============ Root Endpoint ============
@@ -494,5 +527,5 @@ async def root():
             }
         },
         "docs": "/docs",
-        "authentication": "X-API-Key header" if settings.API_KEY else "disabled (dev mode)"
+        "authentication": "X-API-Key header"
     }

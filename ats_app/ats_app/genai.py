@@ -6,9 +6,29 @@ import json
 import logging
 import os
 import re
+import threading
+import time
+from collections import deque
 from typing import Dict, Optional, Tuple
 
 from config import settings
+
+# ---------------------------------------------------------------------------
+# Prompt input length caps
+# Prevents runaway token costs and keeps prompts within safe context limits.
+# ---------------------------------------------------------------------------
+MAX_PROMPT_INPUT_LENGTH_RESUME: int = 5000   # chars — resume text fields
+MAX_PROMPT_INPUT_LENGTH_NOTES: int = 3000    # chars — notes / descriptions / JD fields
+
+# ---------------------------------------------------------------------------
+# In-process rate limiter for invoke_claude()
+# Allows at most AI_RATE_LIMIT_MAX_CALLS calls per AI_RATE_LIMIT_WINDOW_SECONDS.
+# ---------------------------------------------------------------------------
+AI_RATE_LIMIT_MAX_CALLS: int = 20      # maximum calls per window
+AI_RATE_LIMIT_WINDOW_SECONDS: int = 60  # sliding window length in seconds
+
+_rate_limit_lock = threading.Lock()
+_rate_limit_call_times: deque = deque()  # timestamps of recent invoke_claude() calls
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +144,32 @@ def invoke_claude_bedrock(prompt: str, system: str = None, max_tokens: int = 102
         return None
 
 def invoke_claude(prompt: str, system: str = None, max_tokens: int = 1024) -> Optional[str]:
-    """Invoke Claude - tries direct API first, then Bedrock"""
+    """Invoke Claude - tries direct API first, then Bedrock.
+
+    Enforces an in-process sliding-window rate limit of
+    AI_RATE_LIMIT_MAX_CALLS calls per AI_RATE_LIMIT_WINDOW_SECONDS.
+    Returns None (without calling the API) when the limit is exceeded.
+    """
+    now = time.monotonic()
+    with _rate_limit_lock:
+        # Evict timestamps outside the current window
+        cutoff = now - AI_RATE_LIMIT_WINDOW_SECONDS
+        while _rate_limit_call_times and _rate_limit_call_times[0] <= cutoff:
+            _rate_limit_call_times.popleft()
+
+        if len(_rate_limit_call_times) >= AI_RATE_LIMIT_MAX_CALLS:
+            logger.warning(
+                "invoke_claude: rate limit reached (%d calls in the last %ds). "
+                "Skipping AI call.",
+                AI_RATE_LIMIT_MAX_CALLS,
+                AI_RATE_LIMIT_WINDOW_SECONDS,
+            )
+            return None
+
+        # Record this call before releasing the lock so concurrent threads
+        # see it immediately.
+        _rate_limit_call_times.append(now)
+
     # Try direct Anthropic API first (for local testing)
     result = invoke_claude_api(prompt, system, max_tokens)
     if result:
@@ -140,7 +185,21 @@ def score_resume_against_jd(resume_text: str, job_description: str, requirements
     """
     if not resume_text or not job_description:
         return 0.0, "Missing resume or job description"
-    
+
+    # Truncate inputs to avoid excessive token usage
+    if len(resume_text) > MAX_PROMPT_INPUT_LENGTH_RESUME:
+        logger.debug(
+            "score_resume_against_jd: resume_text truncated from %d to %d chars",
+            len(resume_text), MAX_PROMPT_INPUT_LENGTH_RESUME,
+        )
+        resume_text = resume_text[:MAX_PROMPT_INPUT_LENGTH_RESUME]
+    if len(job_description) > MAX_PROMPT_INPUT_LENGTH_NOTES:
+        logger.debug(
+            "score_resume_against_jd: job_description truncated from %d to %d chars",
+            len(job_description), MAX_PROMPT_INPUT_LENGTH_NOTES,
+        )
+        job_description = job_description[:MAX_PROMPT_INPUT_LENGTH_NOTES]
+
     system = """You are an expert technical recruiter evaluating contractor resumes for agentic AI programs.
 Be rigorous but fair. Focus on:
 1. Direct skill matches to requirements
@@ -196,7 +255,15 @@ def summarize_interview_notes(notes: str, stage: str, candidate_name: str = None
     """
     if not notes:
         return "No notes to summarize"
-    
+
+    # Truncate notes to avoid excessive token usage
+    if len(notes) > MAX_PROMPT_INPUT_LENGTH_NOTES:
+        logger.debug(
+            "summarize_interview_notes: notes truncated from %d to %d chars",
+            len(notes), MAX_PROMPT_INPUT_LENGTH_NOTES,
+        )
+        notes = notes[:MAX_PROMPT_INPUT_LENGTH_NOTES]
+
     system = """You are preparing interview summaries for hiring managers.
 Be concise, factual, and highlight:
 1. Key strengths demonstrated
@@ -226,15 +293,29 @@ def generate_interview_prep(candidate_data: Dict, stage: str) -> str:
 Your output must be well-structured markdown with clear sections and numbered questions.
 Each question should be tailored to the specific candidate and role based on the context provided."""
 
-    # Build context from candidate data
+    # Build context from candidate data, truncating long fields to limit token usage
     context_parts = [f"Candidate: {candidate_data.get('name', 'Unknown')}"]
     context_parts.append(f"Role: {candidate_data.get('job_title', 'Not specified')}")
 
     if candidate_data.get('ai_resume_analysis'):
-        context_parts.append(f"Resume Analysis: {candidate_data['ai_resume_analysis']}")
+        analysis = candidate_data['ai_resume_analysis']
+        if len(analysis) > MAX_PROMPT_INPUT_LENGTH_NOTES:
+            logger.debug(
+                "generate_interview_prep: ai_resume_analysis truncated from %d to %d chars",
+                len(analysis), MAX_PROMPT_INPUT_LENGTH_NOTES,
+            )
+            analysis = analysis[:MAX_PROMPT_INPUT_LENGTH_NOTES]
+        context_parts.append(f"Resume Analysis: {analysis}")
 
     if candidate_data.get('previous_notes'):
-        context_parts.append(f"Previous Interview Notes: {candidate_data['previous_notes']}")
+        prev_notes = candidate_data['previous_notes']
+        if len(prev_notes) > MAX_PROMPT_INPUT_LENGTH_NOTES:
+            logger.debug(
+                "generate_interview_prep: previous_notes truncated from %d to %d chars",
+                len(prev_notes), MAX_PROMPT_INPUT_LENGTH_NOTES,
+            )
+            prev_notes = prev_notes[:MAX_PROMPT_INPUT_LENGTH_NOTES]
+        context_parts.append(f"Previous Interview Notes: {prev_notes}")
 
     prompt = f"""Prepare interview guidance for {stage}.
 
@@ -579,6 +660,26 @@ def generate_interview_questions(
             'resume_concerns': []
         }
 
+    # Truncate long inputs to limit token usage
+    if len(resume_text) > MAX_PROMPT_INPUT_LENGTH_RESUME:
+        logger.debug(
+            "generate_interview_questions: resume_text truncated from %d to %d chars",
+            len(resume_text), MAX_PROMPT_INPUT_LENGTH_RESUME,
+        )
+        resume_text = resume_text[:MAX_PROMPT_INPUT_LENGTH_RESUME]
+    if len(job_description) > MAX_PROMPT_INPUT_LENGTH_NOTES:
+        logger.debug(
+            "generate_interview_questions: job_description truncated from %d to %d chars",
+            len(job_description), MAX_PROMPT_INPUT_LENGTH_NOTES,
+        )
+        job_description = job_description[:MAX_PROMPT_INPUT_LENGTH_NOTES]
+    if previous_feedback and len(previous_feedback) > MAX_PROMPT_INPUT_LENGTH_NOTES:
+        logger.debug(
+            "generate_interview_questions: previous_feedback truncated from %d to %d chars",
+            len(previous_feedback), MAX_PROMPT_INPUT_LENGTH_NOTES,
+        )
+        previous_feedback = previous_feedback[:MAX_PROMPT_INPUT_LENGTH_NOTES]
+
     # Define stage-specific guidance
     stage_guidance = {
         'Phone Screen': """Focus on:
@@ -787,8 +888,16 @@ def comparative_resume_analysis(candidates: list, job: dict) -> str:
     """
     candidate_blocks = []
     for i, c in enumerate(candidates):
-        resume_excerpt = (c.get('resume_text') or '')[:3000]
-        analysis = c.get('ai_resume_analysis') or 'No AI analysis available'
+        # Truncate resume text and analysis to limit token usage per candidate
+        resume_excerpt = (c.get('resume_text') or '')[:MAX_PROMPT_INPUT_LENGTH_RESUME]
+        raw_analysis = c.get('ai_resume_analysis') or 'No AI analysis available'
+        analysis = raw_analysis[:MAX_PROMPT_INPUT_LENGTH_NOTES]
+        if len(raw_analysis) > MAX_PROMPT_INPUT_LENGTH_NOTES:
+            logger.debug(
+                "comparative_resume_analysis: ai_resume_analysis for candidate %d "
+                "truncated from %d to %d chars",
+                i + 1, len(raw_analysis), MAX_PROMPT_INPUT_LENGTH_NOTES,
+            )
         score = c.get('ai_resume_score', 0) or 0
         candidate_blocks.append(
             f"CANDIDATE {i+1}: {c.get('name', 'Unknown')}\n"

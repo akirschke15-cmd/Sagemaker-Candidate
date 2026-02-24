@@ -51,12 +51,13 @@ def get_user_by_email(email: str) -> Optional[Dict]:
 def update_user(user_id: int, **kwargs):
     """Update user fields."""
     ALLOWED_COLUMNS = {'email', 'name', 'role', 'is_active'}
+    filtered = {k: v for k, v in kwargs.items() if k in ALLOWED_COLUMNS}
     invalid_cols = set(kwargs.keys()) - ALLOWED_COLUMNS
     if invalid_cols:
         raise ValueError(f"Invalid column names: {invalid_cols}")
     with db_session() as conn:
-        set_clause = ", ".join(f"{k} = ?" for k in kwargs.keys())
-        conn.execute(f"UPDATE users SET {set_clause} WHERE id = ?", (*kwargs.values(), user_id))
+        set_clause = ", ".join(f"{k} = ?" for k in filtered.keys())
+        conn.execute(f"UPDATE users SET {set_clause} WHERE id = ?", (*filtered.values(), user_id))
 
 
 def deactivate_user(user_id: int):

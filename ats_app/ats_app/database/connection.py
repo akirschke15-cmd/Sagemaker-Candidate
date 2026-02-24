@@ -263,16 +263,21 @@ def explain_query(sql, params=None):
     """
     Run EXPLAIN QUERY PLAN on a query for debugging slow queries.
     Works with both SQLite and PostgreSQL.
+    Only SELECT statements are allowed for safety.
     """
+    if not isinstance(sql, str):
+        raise TypeError("sql must be a string")
+    stripped = sql.strip().upper()
+    if not stripped.startswith("SELECT"):
+        raise ValueError("explain_query only accepts SELECT statements")
+
     db_type = get_db_type()
 
     with db_session() as conn:
         if db_type == "postgresql":
-            # PostgreSQL uses EXPLAIN
             adapted_sql = adapt_query(sql, db_type)
             result = conn.execute(f"EXPLAIN {adapted_sql}", params or []).fetchall()
         else:
-            # SQLite uses EXPLAIN QUERY PLAN
             result = conn.execute(f"EXPLAIN QUERY PLAN {sql}", params or []).fetchall()
 
         return [dict(r) for r in result]

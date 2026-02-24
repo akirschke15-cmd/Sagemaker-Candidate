@@ -27,8 +27,8 @@ def validate_webhook_url(url: str) -> tuple[bool, str]:
     """Validate webhook URL is safe (not internal/private). Returns (is_valid, error_msg)."""
     try:
         parsed = urlparse(url)
-        if parsed.scheme not in ('https', 'http'):
-            return False, f"Invalid scheme: {parsed.scheme}"
+        if parsed.scheme != 'https':
+            return False, f"Only HTTPS webhooks are allowed. Got: {parsed.scheme}"
         if not parsed.hostname:
             return False, "No hostname in URL"
         # Resolve hostname and check for private IPs
@@ -352,7 +352,8 @@ def format_slack_interview_notification(interview: Dict, candidate: Dict) -> Dic
     scheduled_time = interview.get('scheduled_time', 'TBD')
     interviewer = interview.get('interviewer_name', 'TBD')
     location = interview.get('location', '')
-    meeting_link = interview.get('meeting_link', '')
+    _raw_link = interview.get('meeting_link', '')
+    meeting_link = _raw_link if _raw_link and urlparse(_raw_link).scheme in ('https', 'http') else ''
 
     message = {
         "attachments": [
@@ -435,7 +436,8 @@ def format_teams_interview_notification(interview: Dict, candidate: Dict) -> Dic
     scheduled_time = interview.get('scheduled_time', 'TBD')
     interviewer = interview.get('interviewer_name', 'TBD')
     location = interview.get('location', '')
-    meeting_link = interview.get('meeting_link', '')
+    _raw_link = interview.get('meeting_link', '')
+    meeting_link = _raw_link if _raw_link and urlparse(_raw_link).scheme in ('https', 'http') else ''
 
     facts = [
         {"title": "Candidate", "value": candidate_name},

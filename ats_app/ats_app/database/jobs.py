@@ -45,13 +45,14 @@ def get_job(job_id: int) -> Optional[Dict]:
 
 def update_job(job_id: int, **kwargs):
     ALLOWED_COLUMNS = {'title', 'description', 'requirements', 'department', 'status', 'slots', 'updated_at', 'contractor_role_id'}
+    kwargs['updated_at'] = datetime.now().isoformat()
+    filtered = {k: v for k, v in kwargs.items() if k in ALLOWED_COLUMNS}
     invalid_cols = set(kwargs.keys()) - ALLOWED_COLUMNS
     if invalid_cols:
         raise ValueError(f"Invalid column names: {invalid_cols}")
     with db_session() as conn:
-        kwargs['updated_at'] = datetime.now().isoformat()
-        set_clause = ", ".join(f"{k} = ?" for k in kwargs.keys())
-        conn.execute(f"UPDATE jobs SET {set_clause} WHERE id = ?", (*kwargs.values(), job_id))
+        set_clause = ", ".join(f"{k} = ?" for k in filtered.keys())
+        conn.execute(f"UPDATE jobs SET {set_clause} WHERE id = ?", (*filtered.values(), job_id))
     invalidate_job_caches()
 
 

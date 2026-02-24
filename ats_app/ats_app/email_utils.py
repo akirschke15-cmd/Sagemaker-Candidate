@@ -13,15 +13,22 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
+def _sanitize_header_value(value: str) -> str:
+    """Strip CRLF sequences that could inject additional email headers."""
+    return re.sub(r'[\r\n]', ' ', str(value))
+
+
 def render_template(template: str, context: Dict) -> str:
     """
     Render an email template with context variables.
     Variables are in {variable_name} format.
+    Values are sanitized to prevent email header injection.
     """
     result = template
     for key, value in context.items():
         placeholder = "{" + key + "}"
-        result = result.replace(placeholder, str(value) if value else "")
+        safe_value = _sanitize_header_value(value) if value else ""
+        result = result.replace(placeholder, safe_value)
     return result
 
 def build_email_context(candidate: Dict, job: Dict = None, interview: Dict = None) -> Dict:

@@ -173,10 +173,10 @@ def submit_mobile_scorecard(
 
     except KeyError as e:
         logger.error(f"Missing required field when submitting scorecard with token: {e}")
-        return False, f"Error submitting scorecard: Missing required field {str(e)}"
+        return False, "Error submitting scorecard: a required field is missing"
     except Exception as e:
-        logger.exception(f"Unexpected error submitting scorecard with token")
-        return False, f"Error submitting scorecard: {str(e)}"
+        logger.exception("Unexpected error submitting scorecard with token")
+        return False, "An unexpected error occurred. Please try again or contact support."
 
 
 def invalidate_token(token: str) -> bool:
