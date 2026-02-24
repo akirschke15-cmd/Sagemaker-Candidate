@@ -55,17 +55,29 @@ def get_candidate(candidate_id: int) -> Optional[Dict]:
     with db_session() as conn:
         row = conn.execute("""
             SELECT c.*, j.title as job_title, j.description as job_description,
-                   j.requirements as job_requirements, v.name as vendor_name
+                   j.requirements as job_requirements, v.name as vendor_name,
+                   cj.ai_resume_score as cj_ai_resume_score,
+                   cj.ai_resume_analysis as cj_ai_resume_analysis
             FROM candidates c
             LEFT JOIN jobs j ON c.job_id = j.id
             LEFT JOIN vendors v ON c.vendor_id = v.id
+            LEFT JOIN candidate_jobs cj ON c.id = cj.candidate_id AND c.job_id = cj.job_id
             WHERE c.id = ?
         """, (candidate_id,)).fetchone()
-        return dict(row) if row else None
+        if not row:
+            return None
+        result = dict(row)
+        # Prefer candidate_jobs scores when the candidates table is out of sync
+        if result.get('cj_ai_resume_score') and (not result.get('ai_resume_score') or result['ai_resume_score'] == 0):
+            result['ai_resume_score'] = result['cj_ai_resume_score']
+            result['ai_resume_analysis'] = result['cj_ai_resume_analysis']
+        result.pop('cj_ai_resume_score', None)
+        result.pop('cj_ai_resume_analysis', None)
+        return result
 
 
 def update_candidate(candidate_id: int, **kwargs):
-    ALLOWED_COLUMNS = {'name', 'email', 'phone', 'vendor_id', 'job_id', 'current_stage', 'status', 'resume_text', 'resume_path', 'resume_original_filename', 'ai_resume_score', 'ai_resume_analysis', 'notes', 'updated_at', 'expected_hourly_rate', 'is_past_contractor', 'last_contract_end', 'rehire_eligible', 'rehire_notes'}
+    ALLOWED_COLUMNS = {'name', 'email', 'phone', 'vendor_id', 'job_id', 'current_stage', 'status', 'resume_text', 'resume_path', 'resume_original_filename', 'ai_resume_score', 'ai_resume_analysis', 'ai_interview_prep', 'ai_interview_questions', 'notes', 'updated_at', 'expected_hourly_rate', 'is_past_contractor', 'last_contract_end', 'rehire_eligible', 'rehire_notes'}
     invalid_cols = set(kwargs.keys()) - ALLOWED_COLUMNS
     if invalid_cols:
         raise ValueError(f"Invalid column names: {invalid_cols}")
@@ -84,7 +96,7 @@ def batch_update_candidates(updates: List[Dict]):
         updates: List of dicts with 'id' and field updates, e.g.:
                  [{'id': 1, 'status': 'Rejected'}, {'id': 2, 'current_stage': 'Offer'}]
     """
-    ALLOWED_COLUMNS = {'name', 'email', 'phone', 'vendor_id', 'job_id', 'current_stage', 'status', 'resume_text', 'resume_path', 'resume_original_filename', 'ai_resume_score', 'ai_resume_analysis', 'notes', 'updated_at', 'expected_hourly_rate', 'is_past_contractor', 'last_contract_end', 'rehire_eligible', 'rehire_notes'}
+    ALLOWED_COLUMNS = {'name', 'email', 'phone', 'vendor_id', 'job_id', 'current_stage', 'status', 'resume_text', 'resume_path', 'resume_original_filename', 'ai_resume_score', 'ai_resume_analysis', 'ai_interview_prep', 'ai_interview_questions', 'notes', 'updated_at', 'expected_hourly_rate', 'is_past_contractor', 'last_contract_end', 'rehire_eligible', 'rehire_notes'}
 
     if not updates:
         return
@@ -358,7 +370,7 @@ def get_candidates_for_comparison(candidate_ids: list) -> list:
                 try:
                     created = datetime.fromisoformat(candidate['created_at'].replace('Z', '+00:00'))
                     days_in_pipeline = (datetime.now() - created.replace(tzinfo=None)).days
-                    candidate['days_in_pipeline'] = days_in_pipeline
+                    candidate['days_in_pipeline'] = max(days_in_pipeline, 0)
                 except:
                     candidate['days_in_pipeline'] = 0
             else:
@@ -370,17 +382,35 @@ def get_candidates_for_comparison(candidate_ids: list) -> list:
             gaps = []
 
             if analysis:
+                def _split_analysis_items(text):
+                    """Split comma-separated items while preserving commas inside parentheses and inline lists."""
+                    import re
+                    # Protect commas inside parentheses
+                    protected = re.sub(r'\(([^)]+)\)', lambda m: '(' + m.group(1).replace(',', '\x00') + ')', text)
+                    raw_items = [s.strip().replace('\x00', ',') for s in protected.split(',') if s.strip()]
+                    # Merge fragments back into previous item: short items, lowercase starts, or numeric starts
+                    merged = []
+                    for item in raw_items:
+                        is_fragment = (len(item.split()) < 4
+                                       or (item and item[0].islower())
+                                       or (item and item[0].isdigit()))
+                        if merged and is_fragment:
+                            merged[-1] = merged[-1] + ', ' + item
+                        else:
+                            merged.append(item)
+                    return merged
+
                 # Parse strengths section
                 if 'Strengths:' in analysis:
                     strengths_section = analysis.split('Strengths:')[1]
                     if 'Gaps:' in strengths_section:
                         strengths_section = strengths_section.split('Gaps:')[0]
-                    strengths = [s.strip() for s in strengths_section.split(',') if s.strip()]
+                    strengths = _split_analysis_items(strengths_section)
 
                 # Parse gaps section
                 if 'Gaps:' in analysis:
                     gaps_section = analysis.split('Gaps:')[1]
-                    gaps = [g.strip() for g in gaps_section.split(',') if g.strip()]
+                    gaps = _split_analysis_items(gaps_section)
 
             candidate['strengths'] = strengths[:5]  # Limit to 5 items
             candidate['gaps'] = gaps[:5]

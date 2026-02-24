@@ -16,11 +16,12 @@ except ImportError:
 
 
 def create_job(title: str, description: str = None, requirements: str = None,
-               department: str = None, slots: int = 1) -> int:
+               department: str = None, slots: int = 1, status: str = 'Open',
+               contractor_role_id: int = None) -> int:
     with db_session() as conn:
         cursor = conn.execute(
-            "INSERT INTO jobs (title, description, requirements, department, slots) VALUES (?, ?, ?, ?, ?)",
-            (title, description, requirements, department, slots)
+            "INSERT INTO jobs (title, description, requirements, department, slots, status, contractor_role_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (title, description, requirements, department, slots, status, contractor_role_id)
         )
         job_id = cursor.lastrowid
     invalidate_job_caches()

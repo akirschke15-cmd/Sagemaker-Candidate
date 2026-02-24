@@ -105,20 +105,16 @@ def get_job_stats_multirole() -> List[Dict]:
 
 
 @cached(analytics_cache, ttl=300, key_prefix="analytics")
-def get_pipeline_velocity(job_id: int = None) -> List[Dict]:
+def get_pipeline_velocity(job_id: int = None) -> Dict:
     """
     Calculate average days spent in each stage.
-    Uses stage_notes and interviews to track time in stages.
-    Returns list of {stage, avg_days, min_days, max_days, candidate_count}.
+    Returns {avg_days_per_stage, total_candidates, by_stage: {stage: avg_days}}.
     """
     with db_session() as conn:
-        # Optimized: Single query without CTE, uses composite index on (status, current_stage)
         query = """
             SELECT
                 cj.current_stage as stage,
                 ROUND(AVG(JULIANDAY(cj.updated_at) - JULIANDAY(cj.created_at)), 1) as avg_days,
-                ROUND(MIN(JULIANDAY(cj.updated_at) - JULIANDAY(cj.created_at)), 1) as min_days,
-                ROUND(MAX(JULIANDAY(cj.updated_at) - JULIANDAY(cj.created_at)), 1) as max_days,
                 COUNT(*) as candidate_count
             FROM candidate_jobs cj
             WHERE cj.status IN ('Active', 'Rejected')
@@ -144,7 +140,20 @@ def get_pipeline_velocity(job_id: int = None) -> List[Dict]:
                 END
         """
         rows = conn.execute(query, params).fetchall()
-        return [dict(r) for r in rows]
+
+        if not rows:
+            return {}
+
+        by_stage = {r['stage']: r['avg_days'] for r in rows}
+        total_candidates = sum(r['candidate_count'] for r in rows)
+        all_avg = [r['avg_days'] for r in rows if r['avg_days'] is not None]
+        avg_overall = round(sum(all_avg) / len(all_avg), 1) if all_avg else 0
+
+        return {
+            'avg_days_per_stage': avg_overall,
+            'total_candidates': total_candidates,
+            'by_stage': by_stage
+        }
 
 
 def get_time_to_hire_stats(job_id: int = None) -> Dict:
@@ -270,7 +279,9 @@ def get_stage_conversion_rates(job_id: int = None) -> List[Dict]:
             results.append({
                 'from_stage': stage,
                 'to_stage': next_stage,
+                'total_count': total_entered,
                 'total_entered': total_entered,
+                'advanced_count': advanced,
                 'advanced': advanced,
                 'rejected': rejected,
                 'still_in_stage': stage_counts.get(stage, 0),
@@ -317,10 +328,10 @@ def get_vendor_performance() -> List[Dict]:
         return results
 
 
-def get_hiring_trends(days: int = 90) -> List[Dict]:
+def get_hiring_trends(days: int = 90) -> Dict:
     """
     Get hiring trends over time.
-    Returns list of {date, hires, applications}.
+    Returns {by_date: [{date, hired_count, applications}], total_hired, peak_day: {date, count}}.
     """
     with db_session() as conn:
         # Hires by date
@@ -351,11 +362,20 @@ def get_hiring_trends(days: int = 90) -> List[Dict]:
         # Combine all dates
         all_dates = sorted(set(list(hires.keys()) + list(apps.keys())))
 
-        return [{
+        by_date = [{
             'date': d,
-            'hires': hires.get(d, 0),
+            'hired_count': hires.get(d, 0),
             'applications': apps.get(d, 0)
         } for d in all_dates]
+
+        total_hired = sum(hires.values())
+        peak_day = max(by_date, key=lambda x: x['hired_count']) if by_date else {'date': None, 'hired_count': 0}
+
+        return {
+            'by_date': by_date,
+            'total_hired': total_hired,
+            'peak_day': {'date': peak_day['date'], 'count': peak_day['hired_count']}
+        }
 
 
 def get_rejection_reasons() -> List[Dict]:

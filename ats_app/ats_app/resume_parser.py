@@ -538,12 +538,12 @@ def delete_resume_file(resume_path: str) -> Optional[str]:
         return f"Failed to delete file: {str(e)}"
 
 
-def validate_file_size(file_bytes: bytes, max_size_mb: float = None) -> Optional[str]:
+def validate_file_size(file_bytes, max_size_mb: float = None) -> Optional[str]:
     """
     Validate file size is within limits.
 
     Args:
-        file_bytes: Raw file bytes
+        file_bytes: Raw file bytes or a Streamlit UploadedFile object
         max_size_mb: Maximum allowed size in megabytes (default from settings)
 
     Returns:
@@ -555,7 +555,11 @@ def validate_file_size(file_bytes: bytes, max_size_mb: float = None) -> Optional
     if max_size_mb is None:
         max_size_mb = settings.MAX_RESUME_SIZE_MB
 
-    size_mb = len(file_bytes) / (1024 * 1024)
+    # Support both raw bytes and Streamlit UploadedFile objects
+    if hasattr(file_bytes, 'size'):
+        size_mb = file_bytes.size / (1024 * 1024)
+    else:
+        size_mb = len(file_bytes) / (1024 * 1024)
 
     if size_mb > max_size_mb:
         return f"File too large: {size_mb:.1f}MB (max {max_size_mb:.1f}MB)"

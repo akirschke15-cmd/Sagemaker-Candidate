@@ -14,7 +14,7 @@ from calendar_integration import (
 from mobile_scorecard import (
     generate_scorecard_token, get_scorecard_tokens_for_interview
 )
-from genai import generate_interview_prep
+from genai import smart_generate_interview_prep
 from auth import get_current_user, has_permission
 from views.utils import safe, section_header, avatar_badge, stage_badge, empty_state, _clean_html
 
@@ -155,13 +155,16 @@ def render_upcoming_interviews():
                         # Generate interview prep notes
                         prep_notes = None
                         if job and candidate.get('resume_text'):
-                            prep_result = generate_interview_prep(
-                                candidate_id=candidate_id,
-                                job_id=job_id,
-                                stage=interview.get('stage')
+                            candidate_data = {
+                                'name': candidate.get('name'),
+                                'job_title': job.get('title'),
+                                'ai_resume_analysis': candidate.get('ai_resume_analysis'),
+                                'previous_notes': '',
+                            }
+                            prep_notes = smart_generate_interview_prep(
+                                candidate_data,
+                                interview.get('stage', 'Technical Interview')
                             )
-                            if prep_result.get('success'):
-                                prep_notes = prep_result.get('prep_notes')
 
                         # Generate ICS content
                         ics_content, uid = generate_ics_event(
@@ -230,18 +233,23 @@ def render_upcoming_interviews():
                     else:
                         with st.spinner("Generating interview prep notes..."):
                             try:
-                                prep_result = generate_interview_prep(
-                                    candidate_id=candidate_id,
-                                    job_id=job_id,
-                                    stage=interview.get('stage')
+                                candidate_data = {
+                                    'name': candidate.get('name'),
+                                    'job_title': job.get('title'),
+                                    'ai_resume_analysis': candidate.get('ai_resume_analysis'),
+                                    'previous_notes': '',
+                                }
+                                prep_text = smart_generate_interview_prep(
+                                    candidate_data,
+                                    interview.get('stage', 'Technical Interview')
                                 )
 
-                                if prep_result.get('success'):
+                                if prep_text:
                                     st.success("Interview prep generated!")
                                     st.markdown("**Interview Prep Notes:**", unsafe_allow_html=True)
-                                    st.markdown(prep_result.get('prep_notes', ''))
+                                    st.markdown(prep_text)
                                 else:
-                                    st.error(prep_result.get('message', 'Failed to generate prep notes'))
+                                    st.error("Failed to generate prep notes")
 
                             except Exception as e:
                                 st.error(f"Error generating prep notes: {str(e)}")

@@ -57,14 +57,17 @@ def invoke_claude_api(prompt: str, system: str = None, max_tokens: int = 1024) -
     """Invoke Claude via direct Anthropic API"""
     client = get_anthropic_client()
     if not client:
+        logger.debug("invoke_claude_api: no client available")
         return None
 
     try:
+        # Scale timeout with max_tokens — longer responses need more time
+        timeout = max(settings.AI_TIMEOUT_SECONDS, max_tokens * 0.05)
         kwargs = {
             "model": settings.AI_MODEL,
             "max_tokens": max_tokens,
             "messages": [{"role": "user", "content": prompt}],
-            "timeout": settings.AI_TIMEOUT_SECONDS
+            "timeout": timeout
         }
         if system:
             kwargs["system"] = system
@@ -217,38 +220,55 @@ Provide a brief summary for the next interviewer."""
 
 def generate_interview_prep(candidate_data: Dict, stage: str) -> str:
     """
-    Generate interview prep notes based on previous stages.
+    Generate interview prep notes with 8 technical and 3 behavioral questions.
     """
-    system = """You are helping interviewers prepare for candidate interviews.
-Based on previous stage feedback, suggest:
-1. Key areas to explore
-2. Specific questions to ask
-3. What to validate from previous feedback
-
-Be concise and actionable."""
+    system = """You are an expert technical interviewer preparing for a candidate interview.
+Your output must be well-structured markdown with clear sections and numbered questions.
+Each question should be tailored to the specific candidate and role based on the context provided."""
 
     # Build context from candidate data
     context_parts = [f"Candidate: {candidate_data.get('name', 'Unknown')}"]
     context_parts.append(f"Role: {candidate_data.get('job_title', 'Not specified')}")
-    
+
     if candidate_data.get('ai_resume_analysis'):
         context_parts.append(f"Resume Analysis: {candidate_data['ai_resume_analysis']}")
-    
+
     if candidate_data.get('previous_notes'):
         context_parts.append(f"Previous Interview Notes: {candidate_data['previous_notes']}")
-    
+
     prompt = f"""Prepare interview guidance for {stage}.
 
 {chr(10).join(context_parts)}
 
-Provide 3-5 specific areas to explore and questions to ask."""
+Generate the following in markdown format:
 
-    response = invoke_claude(prompt, system, max_tokens=500)
-    
-    if response:
-        return response.strip()
-    
-    return "AI prep unavailable - review previous notes manually"
+## Key Areas to Explore
+List 3-5 key areas the interviewer should focus on, based on the candidate's resume and role requirements.
+
+## Technical Questions (8)
+Generate exactly 8 technical interview questions relevant to the role and the candidate's background. For each question:
+- Make it specific to the skills/technologies in the job and resume
+- Include a brief note on what the question validates
+
+## Behavioral Questions (3)
+Generate exactly 3 behavioral interview questions using the STAR format prompt style. For each:
+- Tie it to a competency relevant to the role
+- Include what to look for in a strong answer
+
+## Red Flags to Watch For
+List 2-3 potential concerns to probe based on the resume analysis."""
+
+    try:
+        response = invoke_claude(prompt, system, max_tokens=4000)
+
+        if response:
+            return response.strip()
+
+        logger.warning("generate_interview_prep: invoke_claude returned None")
+        return "AI prep unavailable - review previous notes manually"
+    except Exception as e:
+        logger.exception(f"generate_interview_prep error: {e}")
+        return f"AI prep error: {str(e)}"
 
 def batch_rank_candidates(candidates: list, job_description: str) -> list:
     """
@@ -312,6 +332,108 @@ def smart_summarize_notes(notes: str, stage: str, candidate_name: str = None) ->
         return summarize_interview_notes(notes, stage, candidate_name)
     return mock_summarize_notes(notes, stage, candidate_name)
 
+def mock_generate_interview_prep(candidate_data: Dict, stage: str) -> str:
+    """Mock interview prep generation for testing without AI backend."""
+    name = candidate_data.get('name', 'the candidate')
+    job_title = candidate_data.get('job_title', 'the role')
+    analysis = candidate_data.get('ai_resume_analysis', '')
+
+    prep = f"# Interview Guidance: {name} — {stage}\n\n"
+    prep += f"**Role:** {job_title}\n\n"
+
+    prep += "## Key Areas to Explore\n"
+    prep += "1. Validate technical skills mentioned in resume against hands-on experience\n"
+    prep += "2. Assess problem-solving approach with real-world scenarios\n"
+    prep += "3. Evaluate communication skills and team collaboration style\n"
+    prep += "4. Probe for specific project outcomes and measurable impact\n\n"
+
+    if analysis:
+        prep += f"> **Resume Analysis:** {analysis}\n\n"
+
+    prep += "## Technical Questions (8)\n\n"
+    prep += "1. **Walk me through the architecture of a system you built recently.** *Validates: system design skills*\n"
+    prep += "2. **How would you approach debugging a performance issue in production?** *Validates: troubleshooting methodology*\n"
+    prep += "3. **Describe your experience with the core technologies listed in the job description.** *Validates: technical depth*\n"
+    prep += "4. **How do you ensure code quality and maintainability in your projects?** *Validates: engineering practices*\n"
+    prep += "5. **Explain a complex technical concept you've worked with to a non-technical stakeholder.** *Validates: communication*\n"
+    prep += "6. **What's your approach to testing — unit, integration, end-to-end?** *Validates: quality mindset*\n"
+    prep += "7. **Describe a technical decision you made that you later had to revisit.** *Validates: judgment and adaptability*\n"
+    prep += "8. **How do you stay current with new tools and technologies in your field?** *Validates: learning agility*\n\n"
+
+    prep += "## Behavioral Questions (3)\n\n"
+    prep += "1. **Tell me about a time you had to deliver results under tight deadlines. What was the situation, your approach, and the outcome?** *Competency: Execution under pressure. Look for: clear prioritization, communication with stakeholders.*\n"
+    prep += "2. **Describe a situation where you disagreed with a team member on a technical approach. How did you handle it?** *Competency: Collaboration. Look for: respectful dialogue, data-driven resolution.*\n"
+    prep += "3. **Give an example of when you identified a problem before anyone else noticed. What did you do?** *Competency: Ownership. Look for: proactive behavior, follow-through.*\n\n"
+
+    prep += "## Red Flags to Watch For\n"
+    prep += "- Vague answers without specific examples or measurable outcomes\n"
+    prep += "- Inability to explain technical decisions or trade-offs clearly\n"
+    prep += "- Gaps between resume claims and demonstrated depth in conversation\n"
+
+    return prep
+
+def smart_generate_interview_prep(candidate_data: Dict, stage: str) -> str:
+    """Generate interview prep using Claude API or Bedrock if available, mock otherwise."""
+    if (ANTHROPIC_AVAILABLE and get_anthropic_client()) or (BEDROCK_AVAILABLE and get_bedrock_client()):
+        return generate_interview_prep(candidate_data, stage)
+    return mock_generate_interview_prep(candidate_data, stage)
+
+def extract_candidate_info(resume_text: str) -> Dict:
+    """Extract structured candidate info from resume text using Claude."""
+    system = """You are a resume parser. Extract the candidate's contact information from the resume text.
+Output JSON only with these fields: {"name": "", "email": "", "phone": ""}
+If a field cannot be found, use an empty string. Do not invent or guess information."""
+
+    prompt = f"""Extract the candidate's name, email, and phone number from this resume:
+
+{resume_text[:3000]}"""
+
+    response = invoke_claude(prompt, system, max_tokens=200)
+    if response:
+        try:
+            # Extract JSON from response
+            json_match = re.search(r'\{[^}]+\}', response)
+            if json_match:
+                return json.loads(json_match.group())
+        except (json.JSONDecodeError, AttributeError):
+            pass
+    return {"name": "", "email": "", "phone": ""}
+
+
+def mock_extract_candidate_info(resume_text: str) -> Dict:
+    """Extract candidate info using regex when no AI backend is available."""
+    result = {"name": "", "email": "", "phone": ""}
+
+    # Extract email
+    email_match = re.search(r'[\w.+-]+@[\w.-]+\.\w+', resume_text)
+    if email_match:
+        result["email"] = email_match.group()
+
+    # Extract phone
+    phone_match = re.search(r'[\(]?\d{3}[\)]?[\s.\-]?\d{3}[\s.\-]?\d{4}', resume_text)
+    if phone_match:
+        result["phone"] = phone_match.group()
+
+    # Extract name - use first non-empty line as best guess
+    for line in resume_text.split('\n'):
+        line = line.strip()
+        if line and not re.match(r'^[\w.+-]+@', line) and not re.match(r'^[\(]?\d{3}', line):
+            # Take first meaningful line, strip common suffixes
+            name = re.sub(r'\s*[-–|,].*$', '', line).strip()
+            if len(name) > 1 and len(name) < 60:
+                result["name"] = name
+                break
+
+    return result
+
+
+def smart_extract_candidate_info(resume_text: str) -> Dict:
+    """Extract candidate info using Claude if available, regex fallback otherwise."""
+    if (ANTHROPIC_AVAILABLE and get_anthropic_client()) or (BEDROCK_AVAILABLE and get_bedrock_client()):
+        return extract_candidate_info(resume_text)
+    return mock_extract_candidate_info(resume_text)
+
+
 def get_ai_backend_status() -> str:
     """Return which AI backend is currently active"""
     if ANTHROPIC_AVAILABLE and get_anthropic_client():
@@ -351,13 +473,13 @@ def compare_candidates(candidates: list, job_description: str) -> dict:
         summary = f"""
 CANDIDATE {i+1}: {c.get('name', 'Unknown')}
 - Current Stage: {c.get('current_stage', 'N/A')}
-- Days in Pipeline: {c.get('days_in_pipeline', 0)}
-- AI Resume Score: {c.get('ai_resume_score', 0):.0f}%
-- Expected Rate: ${c.get('expected_hourly_rate', 0):.0f}/hr (Status: {c.get('rate_status', 'unknown')})
-- Interview Score: {c.get('total_interview_score', 0):.0f}%
-- Recommendations Received: {c.get('recommendations', 0)}
-- Strengths: {', '.join(c.get('strengths', [])) or 'Not analyzed'}
-- Gaps: {', '.join(c.get('gaps', [])) or 'None identified'}
+- Days in Pipeline: {c.get('days_in_pipeline') or 0}
+- AI Resume Score: {(c.get('ai_resume_score') or 0):.0f}%
+- Expected Rate: ${(c.get('expected_hourly_rate') or 0):.0f}/hr (Status: {c.get('rate_status', 'unknown')})
+- Interview Score: {(c.get('total_interview_score') or 0):.0f}%
+- Recommendations Received: {c.get('recommendations') or 0}
+- Strengths: {', '.join(c.get('strengths') or []) or 'Not analyzed'}
+- Gaps: {', '.join(c.get('gaps') or []) or 'None identified'}
 """
         candidate_summaries.append(summary)
 
@@ -649,3 +771,113 @@ def smart_generate_interview_questions(
         job_description, job_requirements, resume_text,
         stage, num_questions
     )
+
+
+def comparative_resume_analysis(candidates: list, job: dict) -> str:
+    """
+    Generate a comparative analysis of candidates based purely on resume merit
+    relative to the job description. Does NOT factor in interview performance.
+
+    Args:
+        candidates: List of candidate dicts with name, resume_text, ai_resume_score, ai_resume_analysis
+        job: Job dict with title, description, requirements
+
+    Returns:
+        Markdown-formatted comparative analysis report
+    """
+    candidate_blocks = []
+    for i, c in enumerate(candidates):
+        resume_excerpt = (c.get('resume_text') or '')[:3000]
+        analysis = c.get('ai_resume_analysis') or 'No AI analysis available'
+        score = c.get('ai_resume_score', 0) or 0
+        candidate_blocks.append(
+            f"CANDIDATE {i+1}: {c.get('name', 'Unknown')}\n"
+            f"- AI Resume Score: {score:.0f}%\n"
+            f"- AI Analysis: {analysis}\n"
+            f"- Resume Excerpt:\n{resume_excerpt}\n"
+        )
+
+    system = """You are an expert technical recruiter performing a comparative resume analysis.
+You are comparing candidates SOLELY on the merit of their resumes relative to the job description.
+You must NOT reference interview performance, interviewer feedback, or any data beyond the resumes and job description.
+
+Produce a well-structured markdown report with these sections:
+
+## Candidate Profiles
+For each candidate, summarize their key qualifications, relevant experience, and notable skills as they relate to the job.
+
+## Side-by-Side Comparison
+A comparison across these dimensions:
+- Technical skills alignment with job requirements
+- Depth and relevance of experience
+- Education and certifications
+- Domain expertise fit
+
+## Strengths & Gaps per Candidate
+For each candidate, list their top strengths and any gaps relative to the job requirements.
+
+## Ranking & Rationale
+Rank candidates from strongest to weakest resume fit, with clear reasoning for each placement.
+
+Be specific, reference actual resume content, and keep the analysis objective."""
+
+    prompt = f"""Perform a comparative resume analysis for the following job and candidates.
+
+JOB: {job.get('title', 'Unknown Position')}
+
+JOB DESCRIPTION:
+{job.get('description', 'No description provided')}
+
+JOB REQUIREMENTS:
+{job.get('requirements', 'No requirements provided')}
+
+{chr(10).join(candidate_blocks)}
+
+Generate the full comparative analysis report in markdown."""
+
+    try:
+        response = invoke_claude(prompt, system, max_tokens=4000)
+        if response:
+            return response.strip()
+        logger.warning("comparative_resume_analysis: invoke_claude returned None")
+        return mock_comparative_resume_analysis(candidates, job)
+    except Exception as e:
+        logger.exception(f"comparative_resume_analysis error: {e}")
+        return mock_comparative_resume_analysis(candidates, job)
+
+
+def mock_comparative_resume_analysis(candidates: list, job: dict) -> str:
+    """Fallback comparative analysis when no AI backend is available."""
+    sorted_candidates = sorted(
+        candidates,
+        key=lambda c: c.get('ai_resume_score', 0) or 0,
+        reverse=True
+    )
+
+    report = f"# Comparative Resume Analysis\n\n"
+    report += f"**Position:** {job.get('title', 'Unknown')}\n\n"
+
+    report += "## Candidate Profiles\n\n"
+    for c in sorted_candidates:
+        score = c.get('ai_resume_score', 0) or 0
+        analysis = c.get('ai_resume_analysis') or 'No analysis available'
+        report += f"### {c.get('name', 'Unknown')}\n"
+        report += f"- **AI Resume Score:** {score:.0f}%\n"
+        report += f"- **Analysis:** {analysis}\n\n"
+
+    report += "## Ranking & Rationale\n\n"
+    for rank, c in enumerate(sorted_candidates, 1):
+        score = c.get('ai_resume_score', 0) or 0
+        report += f"{rank}. **{c.get('name', 'Unknown')}** — AI Resume Score: {score:.0f}%\n"
+
+    report += "\n*Note: This ranking is based on AI resume scores only. "
+    report += "A full AI analysis was not available at the time of generation.*\n"
+
+    return report
+
+
+def smart_comparative_resume_analysis(candidates: list, job: dict) -> str:
+    """Generate comparative resume analysis using Claude if available, mock fallback otherwise."""
+    if (ANTHROPIC_AVAILABLE and get_anthropic_client()) or (BEDROCK_AVAILABLE and get_bedrock_client()):
+        return comparative_resume_analysis(candidates, job)
+    return mock_comparative_resume_analysis(candidates, job)

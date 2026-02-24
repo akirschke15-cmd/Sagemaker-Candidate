@@ -1171,7 +1171,7 @@ def get_interviews_with_role(candidate_id: int = None, job_id: int = None, upcom
             query += " AND (i.job_id = ? OR (i.job_id IS NULL AND c.job_id = ?))"
             params.extend([job_id, job_id])
         if upcoming_only:
-            query += " AND i.scheduled_time >= datetime('now') AND i.status = 'Scheduled'"
+            query += " AND i.scheduled_time >= datetime('now', 'localtime') AND i.status = 'Scheduled'"
         query += " ORDER BY i.scheduled_time"
         rows = conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
@@ -1359,7 +1359,7 @@ def get_interviews(candidate_id: int = None, upcoming_only: bool = False) -> Lis
             query += " AND i.candidate_id = ?"
             params.append(candidate_id)
         if upcoming_only:
-            query += " AND i.scheduled_time >= datetime('now') AND i.status = 'Scheduled'"
+            query += " AND i.scheduled_time >= datetime('now', 'localtime') AND i.status = 'Scheduled'"
         query += " ORDER BY i.scheduled_time"
         rows = conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
@@ -1879,7 +1879,7 @@ def get_candidates_for_comparison(candidate_ids: list) -> list:
                 try:
                     created = datetime.fromisoformat(candidate['created_at'].replace('Z', '+00:00'))
                     days_in_pipeline = (datetime.now() - created.replace(tzinfo=None)).days
-                    candidate['days_in_pipeline'] = days_in_pipeline
+                    candidate['days_in_pipeline'] = max(days_in_pipeline, 0)
                 except:
                     candidate['days_in_pipeline'] = 0
             else:

@@ -46,7 +46,7 @@ from database import (
     get_contracts, extend_contract, get_compliance_docs, add_compliance_doc
 )
 from genai import (
-    smart_score_resume, smart_summarize_notes, generate_interview_prep,
+    smart_score_resume, smart_summarize_notes, smart_generate_interview_prep,
     smart_generate_interview_questions
 )
 from email_utils import render_template, build_email_context, send_email, validate_email

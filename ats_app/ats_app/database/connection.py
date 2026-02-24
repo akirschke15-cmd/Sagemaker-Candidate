@@ -759,6 +759,14 @@ def _migrate_sqlite(conn):
     if 'rehire_notes' not in candidates_cols:
         conn.execute("ALTER TABLE candidates ADD COLUMN rehire_notes TEXT")
 
+    # AI outputs persistence
+    cursor = conn.execute("PRAGMA table_info(candidates)")
+    ai_cols = [row[1] for row in cursor.fetchall()]
+    if 'ai_interview_prep' not in ai_cols:
+        conn.execute("ALTER TABLE candidates ADD COLUMN ai_interview_prep TEXT")
+    if 'ai_interview_questions' not in ai_cols:
+        conn.execute("ALTER TABLE candidates ADD COLUMN ai_interview_questions TEXT")
+
     # Feature 6: Migrate existing candidate.job_id data to candidate_jobs table
     cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='candidate_jobs'")
     if cursor.fetchone():
@@ -843,6 +851,20 @@ def _migrate_sqlite(conn):
         CREATE INDEX IF NOT EXISTS idx_email_queue_candidate ON email_queue(candidate_id);
         """)
 
+    # Seed default "Internal - SWA" vendor for internal candidates
+    existing = conn.execute("SELECT id FROM vendors WHERE name = 'Internal - SWA'").fetchone()
+    if not existing:
+        conn.execute(
+            "INSERT INTO vendors (name, notes) VALUES ('Internal - SWA', 'Internal Southwest Airlines candidates')"
+        )
+    # Assign Internal - SWA vendor to any candidates without a vendor
+    swa_vendor = conn.execute("SELECT id FROM vendors WHERE name = 'Internal - SWA'").fetchone()
+    if swa_vendor:
+        conn.execute(
+            "UPDATE candidates SET vendor_id = ? WHERE vendor_id IS NULL",
+            (swa_vendor['id'],)
+        )
+
 
 def _migrate_postgresql(conn):
     """PostgreSQL-specific migration logic."""
@@ -876,6 +898,12 @@ def _migrate_postgresql(conn):
     # Add contractor_role_id to jobs if not exists
     if not column_exists('jobs', 'contractor_role_id'):
         cursor.execute("ALTER TABLE jobs ADD COLUMN contractor_role_id INTEGER")
+
+    # AI outputs persistence
+    if not column_exists('candidates', 'ai_interview_prep'):
+        cursor.execute("ALTER TABLE candidates ADD COLUMN ai_interview_prep TEXT")
+    if not column_exists('candidates', 'ai_interview_questions'):
+        cursor.execute("ALTER TABLE candidates ADD COLUMN ai_interview_questions TEXT")
 
     # Add expected_hourly_rate to candidates if not exists
     if not column_exists('candidates', 'expected_hourly_rate'):

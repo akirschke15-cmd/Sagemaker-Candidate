@@ -43,23 +43,26 @@ def render_comparison_view(candidate_ids: list):
     job_desc = candidates[0].get('job_description', '') if candidates else ''
     ai_comparison = compare_candidates(candidates, job_desc)
 
-    # Create column layout based on number of candidates
+    # Number of candidates for column layouts
     num_candidates = len(candidates)
-    cols = st.columns(num_candidates)
 
-    # Helper function to find winner for a metric
+    # Helper function to find winner for a metric (returns None if tied)
     def get_winner_for_metric(metric_key, higher_is_better=True):
         values = [(c.get('name'), c.get(metric_key, 0) or 0) for c in candidates]
         if higher_is_better:
-            winner = max(values, key=lambda x: x[1])
+            best_val = max(v[1] for v in values)
         else:
-            winner = min(values, key=lambda x: x[1])
-        return winner[0] if winner[1] > 0 else None
+            best_val = min(v[1] for v in values)
+        if best_val <= 0:
+            return None
+        winners = [v[0] for v in values if v[1] == best_val]
+        return winners[0] if len(winners) == 1 else None
 
     # ============ OVERVIEW SECTION ============
     st.subheader("Overview")
+    overview_cols = st.columns(num_candidates)
     for i, candidate in enumerate(candidates):
-        with cols[i]:
+        with overview_cols[i]:
             name = candidate.get('name', 'Unknown')
             is_recommended = ai_comparison.get('recommendation') == name
 
@@ -75,28 +78,31 @@ def render_comparison_view(candidate_ids: list):
 
             st.markdown(f"**Stage:** {candidate.get('current_stage', 'N/A')}")
             st.markdown(f"**Days in Pipeline:** {candidate.get('days_in_pipeline', 0)}")
-            st.markdown(f"**Vendor:** {candidate.get('vendor_name', 'Direct')}")
+            st.markdown(f"**Vendor:** {candidate.get('vendor_name') or 'Internal - SWA'}")
 
     st.divider()
 
     # ============ AI ANALYSIS SECTION ============
     st.subheader("AI Resume Analysis")
     ai_score_winner = get_winner_for_metric('ai_resume_score', higher_is_better=True)
+    ai_cols = st.columns(num_candidates)
 
     for i, candidate in enumerate(candidates):
-        with cols[i]:
+        with ai_cols[i]:
             score = candidate.get('ai_resume_score', 0) or 0
             is_winner = candidate.get('name') == ai_score_winner and score > 0
 
-            if is_winner:
-                st.markdown(
-                    f"<div style='background-color:{COLOR_WINNER}; color:white; "
-                    f"padding:12px; border-radius:8px; text-align:center;'>"
-                    f"<strong>AI Score: {score:.0f}%</strong><br><small>Highest</small></div>",
-                    unsafe_allow_html=True
-                )
-            else:
-                st.metric("AI Score", f"{score:.0f}%")
+            label = "Highest" if is_winner else ""
+            bg = COLOR_WINNER if is_winner else "rgba(26,35,50,0.6)"
+            st.markdown(
+                f"<div style='background-color:{bg}; color:white; "
+                f"padding:12px; border-radius:8px; text-align:center;'>"
+                f"<div style='color:rgba(255,255,255,0.5); font-size:11px; text-transform:uppercase;'>AI Score</div>"
+                f"<div style='font-size:24px; font-weight:700;'>{score:.0f}%</div>"
+                f"{'<div style=\"font-size:12px;\">' + label + '</div>' if label else ''}"
+                f"</div>",
+                unsafe_allow_html=True
+            )
 
             st.progress(score/100 if score else 0)
 
@@ -135,9 +141,10 @@ def render_comparison_view(candidate_ids: list):
         return None
 
     best_rate = get_best_rate_candidate()
+    comp_cols = st.columns(num_candidates)
 
     for i, candidate in enumerate(candidates):
-        with cols[i]:
+        with comp_cols[i]:
             expected_rate = candidate.get('expected_hourly_rate', 0)
             min_rate = candidate.get('role_min_rate')
             max_rate = candidate.get('role_max_rate')
@@ -187,9 +194,10 @@ def render_comparison_view(candidate_ids: list):
     # ============ INTERVIEW SCORES SECTION ============
     st.subheader("Interview Performance")
     interview_winner = get_winner_for_metric('total_interview_score', higher_is_better=True)
+    interview_cols = st.columns(num_candidates)
 
     for i, candidate in enumerate(candidates):
-        with cols[i]:
+        with interview_cols[i]:
             interview_scores = candidate.get('interview_scores', {})
             total_score = candidate.get('total_interview_score', 0)
             is_winner = candidate.get('name') == interview_winner and total_score > 0

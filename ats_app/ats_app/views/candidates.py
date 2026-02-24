@@ -1,6 +1,7 @@
 """
 Candidates view - List and detail views for candidate management
 """
+import json
 import streamlit as st
 from datetime import datetime, timedelta
 from database import (
@@ -19,8 +20,8 @@ from database import (
     get_contracts, extend_contract, get_compliance_docs, add_compliance_doc
 )
 from genai import (
-    smart_score_resume, smart_summarize_notes, generate_interview_prep,
-    smart_generate_interview_questions
+    smart_score_resume, smart_summarize_notes, smart_generate_interview_prep,
+    smart_generate_interview_questions, smart_extract_candidate_info
 )
 from email_utils import render_template, build_email_context, send_email, validate_email
 from resume_parser import (
@@ -240,6 +241,7 @@ def render_candidates():
                 with bottom_cols[1]:
                     if st.button("View Profile", key=f"view_{candidate_id}", use_container_width=True):
                         st.session_state.selected_candidate = candidate_id
+                        st.query_params['candidate'] = str(candidate_id)
                         st.rerun()
 
             st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
@@ -252,6 +254,39 @@ def render_candidates():
     # ============ ADD CANDIDATE FORM ============
     with st.expander("➕ Add New Candidate", expanded=False):
         st.markdown("<div style='color: white; font-size: 18px; font-weight: 600; margin-bottom: 16px;'>Create Candidate</div>", unsafe_allow_html=True)
+
+        # Resume upload (outside form so it can trigger extraction immediately)
+        resume_file = st.file_uploader(
+            "Upload Resume to Auto-Fill",
+            type=get_supported_extensions(),
+            key="new_cand_resume_upload"
+        )
+
+        if resume_file:
+            # Only process if we haven't already processed this file
+            file_key = f"{resume_file.name}_{resume_file.size}"
+            if st.session_state.get('_parsed_resume_key') != file_key:
+                with st.spinner("Extracting info from resume..."):
+                    file_bytes = resume_file.getvalue()
+                    resume_text, warnings = parse_resume(file_bytes, resume_file.name)
+
+                    if resume_text:
+                        extracted = smart_extract_candidate_info(resume_text)
+                        st.session_state['_parsed_resume_text'] = resume_text
+                        st.session_state['_parsed_resume_filename'] = resume_file.name
+                        st.session_state['_parsed_resume_key'] = file_key
+                        # Write directly to widget keys so form fields update
+                        st.session_state['new_cand_name'] = extracted.get('name', '')
+                        st.session_state['new_cand_email'] = extracted.get('email', '')
+                        st.session_state['new_cand_phone'] = extracted.get('phone', '')
+                        if warnings:
+                            for w in warnings:
+                                st.warning(w)
+                        st.success(f"Resume parsed — fields auto-filled below")
+                        st.rerun()
+                    else:
+                        for w in warnings:
+                            st.error(w)
 
         with st.form("add_candidate_form"):
             new_name = st.text_input("Name*", key="new_cand_name")
@@ -286,13 +321,19 @@ def render_candidates():
                         if vendor_obj:
                             vendor_id = vendor_obj['id']
 
+                    # Get resume data from session state if uploaded
+                    resume_text = st.session_state.get('_parsed_resume_text')
+                    resume_filename = st.session_state.get('_parsed_resume_filename')
+
                     # Create candidate
                     candidate_id = create_candidate(
                         name=new_name,
                         email=new_email if new_email else None,
                         phone=new_phone if new_phone else None,
                         vendor_id=vendor_id,
-                        job_id=job_id
+                        job_id=job_id,
+                        resume_text=resume_text,
+                        resume_original_filename=resume_filename
                     )
 
                     # Update rate if provided
@@ -303,8 +344,14 @@ def render_candidates():
                     if job_id:
                         add_candidate_to_job(candidate_id, job_id, is_primary=1)
 
+                    # Clear parsed resume session state
+                    for key in ['_parsed_resume_text', '_parsed_resume_filename', '_parsed_resume_name',
+                                '_parsed_resume_email', '_parsed_resume_phone', '_parsed_resume_key']:
+                        st.session_state.pop(key, None)
+
                     st.success(f"Candidate '{new_name}' created successfully!")
                     st.session_state.selected_candidate = candidate_id
+                    st.query_params['candidate'] = str(candidate_id)
                     st.rerun()
 
 
@@ -327,12 +374,25 @@ def render_candidate_profile(candidate_id: int):
         st.error("Candidate not found")
         if st.button("Back to Candidates"):
             st.session_state.selected_candidate = None
+            if 'candidate' in st.query_params:
+                del st.query_params['candidate']
             st.rerun()
         return
+
+    # Resolve job_id: fall back to primary job from candidate_jobs if not set
+    if not candidate.get('job_id'):
+        candidate_jobs = get_candidate_jobs(candidate_id)
+        primary_jobs = [cj for cj in candidate_jobs if cj.get('is_primary')]
+        if primary_jobs:
+            candidate['job_id'] = primary_jobs[0]['job_id']
+        elif candidate_jobs:
+            candidate['job_id'] = candidate_jobs[0]['job_id']
 
     # ============ HEADER WITH BACK BUTTON ============
     if st.button("← Back to List", key="back_btn"):
         st.session_state.selected_candidate = None
+        if 'candidate' in st.query_params:
+            del st.query_params['candidate']
         st.rerun()
 
     st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
@@ -402,13 +462,81 @@ def render_candidate_profile(candidate_id: int):
         st.markdown(glass_card(f"<div style='color: rgba(255,255,255,0.6); font-size: 12px; font-weight: 600; text-transform: uppercase; margin-bottom: 12px;'>Current Status</div>{status_html}", padding='20px'), unsafe_allow_html=True)
 
     with info_cols[2]:
-        job_title = candidate.get('job_title', 'No job assigned')
-        job_html = f"""
-        <div style='color: rgba(255,255,255,0.9); font-size: 14px;'>
-            <div style='margin-bottom: 8px;'><span style='opacity: 0.6;'>&#128188;</span> {safe(job_title)}</div>
-        </div>
-        """
-        st.markdown(glass_card(f"<div style='color: rgba(255,255,255,0.6); font-size: 12px; font-weight: 600; text-transform: uppercase; margin-bottom: 12px;'>Job Assignment</div>{job_html}", padding='20px'), unsafe_allow_html=True)
+        current_job_id = candidate.get('job_id')
+        job_title = candidate.get('job_title', '')
+        changing_job = st.session_state.get(f'changing_job_{candidate_id}', False)
+
+        if current_job_id and not changing_job:
+            # Locked state — show assigned job with a change button
+            job_html = f"""
+            <div style='color: rgba(255,255,255,0.9); font-size: 14px;'>
+                <div style='margin-bottom: 8px;'><span style='opacity: 0.6;'>&#128188;</span> {safe(job_title or 'Assigned')}</div>
+            </div>
+            """
+            st.markdown(glass_card(f"<div style='color: rgba(255,255,255,0.6); font-size: 12px; font-weight: 600; text-transform: uppercase; margin-bottom: 12px;'>Job Assignment</div>{job_html}", padding='20px'), unsafe_allow_html=True)
+            if st.button("Change Job", key=f"change_job_btn_{candidate_id}", type="secondary"):
+                st.session_state[f'changing_job_{candidate_id}'] = True
+                st.rerun()
+        elif current_job_id and changing_job:
+            # Confirmation state — confirm before allowing change
+            st.markdown(glass_card(f"<div style='color: rgba(255,255,255,0.6); font-size: 12px; font-weight: 600; text-transform: uppercase; margin-bottom: 12px;'>Job Assignment</div><div style='color:#F9B612; font-size:13px;'>Currently: {safe(job_title)}</div>", padding='20px 20px 4px 20px'), unsafe_allow_html=True)
+            all_jobs_list = get_jobs()
+            job_options = [f"{j['title']} (ID: {j['id']})" for j in all_jobs_list]
+            current_index = 0
+            for i, j in enumerate(all_jobs_list):
+                if j['id'] == current_job_id:
+                    current_index = i
+                    break
+            selected_job = st.selectbox(
+                "New Job",
+                job_options,
+                index=current_index,
+                key=f"job_reassign_{candidate_id}",
+                label_visibility="collapsed"
+            )
+            confirm_cols = st.columns(2)
+            with confirm_cols[0]:
+                if st.button("Confirm", key=f"confirm_job_{candidate_id}", type="primary", use_container_width=True):
+                    new_job_id = None
+                    try:
+                        new_job_id = int(selected_job.split('ID: ')[1].rstrip(')'))
+                    except (ValueError, IndexError):
+                        pass
+                    if new_job_id and new_job_id != current_job_id:
+                        update_candidate(candidate_id, job_id=new_job_id)
+                        existing_cj = get_candidate_jobs(candidate_id)
+                        if not any(cj['job_id'] == new_job_id for cj in existing_cj):
+                            add_candidate_to_job(candidate_id, new_job_id, is_primary=1)
+                    st.session_state[f'changing_job_{candidate_id}'] = False
+                    st.rerun()
+            with confirm_cols[1]:
+                if st.button("Cancel", key=f"cancel_job_{candidate_id}", use_container_width=True):
+                    st.session_state[f'changing_job_{candidate_id}'] = False
+                    st.rerun()
+        else:
+            # No job assigned — show selectbox for initial assignment
+            st.markdown(glass_card("<div style='color: rgba(255,255,255,0.6); font-size: 12px; font-weight: 600; text-transform: uppercase; margin-bottom: 12px;'>Job Assignment</div>", padding='20px 20px 4px 20px'), unsafe_allow_html=True)
+            all_jobs_list = get_jobs()
+            job_options = ['Select a job...'] + [f"{j['title']} (ID: {j['id']})" for j in all_jobs_list]
+            selected_job = st.selectbox(
+                "Job",
+                job_options,
+                index=0,
+                key=f"job_assign_{candidate_id}",
+                label_visibility="collapsed"
+            )
+            if selected_job != 'Select a job...':
+                new_job_id = None
+                try:
+                    new_job_id = int(selected_job.split('ID: ')[1].rstrip(')'))
+                except (ValueError, IndexError):
+                    pass
+                if new_job_id:
+                    update_candidate(candidate_id, job_id=new_job_id)
+                    existing_cj = get_candidate_jobs(candidate_id)
+                    if not any(cj['job_id'] == new_job_id for cj in existing_cj):
+                        add_candidate_to_job(candidate_id, new_job_id, is_primary=1)
+                    st.rerun()
 
     st.markdown("<div style='height:24px'></div>", unsafe_allow_html=True)
 
@@ -463,12 +591,12 @@ def render_candidate_profile(candidate_id: int):
 
         with resume_cols[1]:
             # Current resume info
-            if candidate.get('resume_original_filename'):
-                resume_filename = candidate.get('resume_original_filename')
-                st.markdown(glass_card(f"""
+            if candidate.get('resume_original_filename') or candidate.get('resume_text'):
+                resume_filename = candidate.get('resume_original_filename') or 'Resume on file'
+                st.markdown(_clean_html(glass_card(f"""
                 <div style='color: rgba(255,255,255,0.6); font-size: 12px; font-weight: 600; text-transform: uppercase; margin-bottom: 12px;'>Current Resume</div>
                 <div style='color: rgba(255,255,255,0.9); font-size: 14px; margin-bottom: 16px;'>&#128196; {safe(resume_filename)}</div>
-                """, padding='20px'), unsafe_allow_html=True)
+                """, padding='20px')), unsafe_allow_html=True)
 
                 # AI Scoring
                 ai_score = candidate.get('ai_resume_score', 0) or 0
@@ -479,32 +607,35 @@ def render_candidate_profile(candidate_id: int):
                             st.markdown(candidate.get('ai_resume_analysis'), unsafe_allow_html=True)
 
                 # Re-score button
-                if candidate.get('job_id') and candidate.get('resume_text'):
-                    if st.button("🤖 AI Score Resume", key="ai_score_btn", type="primary", use_container_width=True):
-                        with st.spinner("Analyzing resume..."):
-                            job = get_job(candidate['job_id'])
-                            if job:
-                                score, analysis = smart_score_resume(
-                                    candidate.get('resume_text', ''),
-                                    job.get('description', ''),
-                                    job.get('requirements', '')
-                                )
+                if candidate.get('resume_text'):
+                    if candidate.get('job_id'):
+                        if st.button("🤖 AI Score Resume", key="ai_score_btn", type="primary", use_container_width=True):
+                            with st.spinner("Analyzing resume..."):
+                                job = get_job(candidate['job_id'])
+                                if job:
+                                    score, analysis = smart_score_resume(
+                                        candidate.get('resume_text', ''),
+                                        job.get('description', ''),
+                                        job.get('requirements', '')
+                                    )
 
-                                update_candidate(
-                                    candidate_id,
-                                    ai_resume_score=score,
-                                    ai_resume_analysis=analysis
-                                )
-                                st.success(f"AI Score: {score:.0f}%")
-                                st.rerun()
+                                    update_candidate(
+                                        candidate_id,
+                                        ai_resume_score=score,
+                                        ai_resume_analysis=analysis
+                                    )
+                                    st.success(f"AI Score: {score:.0f}%")
+                                    st.rerun()
+                    else:
+                        st.info("Assign a job to enable AI resume scoring")
             else:
                 st.markdown(empty_state("No resume uploaded", "Upload a resume to enable AI scoring", icon='&#128196;'), unsafe_allow_html=True)
 
         st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
 
         # ============ SCORING CRITERIA ============
+        st.markdown("<div style='color: white; font-size: 20px; font-weight: 600; margin-bottom: 20px;'>Evaluation Scores</div>", unsafe_allow_html=True)
         if candidate.get('job_id'):
-            st.markdown("<div style='color: white; font-size: 20px; font-weight: 600; margin-bottom: 20px;'>Evaluation Scores</div>", unsafe_allow_html=True)
 
             current_stage = candidate.get('current_stage', 'Resume Screen')
             criteria = get_scoring_criteria(candidate['job_id'], current_stage)
@@ -561,6 +692,8 @@ def render_candidate_profile(candidate_id: int):
                 st.markdown(metric_card("Total Score", f"{total['total']:.1f} / {total['max_possible']:.1f}", delta=f"{total_percentage:.1f}%", icon="&#127919;", color="#304CB2"), unsafe_allow_html=True)
             else:
                 st.markdown(empty_state(f"No scoring criteria defined", f"Configure criteria for {current_stage} stage", icon='&#128207;'), unsafe_allow_html=True)
+        else:
+            st.markdown(empty_state("No job assigned", "Assign a job to this candidate to enable evaluation scoring and AI features", icon='&#128207;'), unsafe_allow_html=True)
 
     # ============ TAB 2: STAGE PROGRESSION ============
     with tabs[1]:
@@ -591,7 +724,7 @@ def render_candidate_profile(candidate_id: int):
                     next_stage = STAGES[next_stage_idx]
                     if st.button(f"✅ Advance to {next_stage}", type="primary", use_container_width=True):
                         advance_candidate(candidate_id, next_stage)
-                        trigger_stage_change_email(candidate_id, current_stage, next_stage)
+                        trigger_stage_change_email(candidate_id, candidate.get('job_id'), current_stage, next_stage)
                         st.success(f"Advanced to {next_stage}")
                         st.rerun()
 
@@ -600,7 +733,7 @@ def render_candidate_profile(candidate_id: int):
             if current_stage != 'Rejected':
                 if st.button("❌ Reject", use_container_width=True):
                     reject_candidate(candidate_id)
-                    trigger_stage_change_email(candidate_id, current_stage, 'Rejected')
+                    trigger_stage_change_email(candidate_id, candidate.get('job_id'), current_stage, 'Rejected')
                     st.warning("Candidate rejected")
                     st.rerun()
 
@@ -749,8 +882,8 @@ def render_candidate_profile(candidate_id: int):
         st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
 
         # Interview prep AI
+        st.markdown("<div style='color: white; font-size: 20px; font-weight: 600; margin-bottom: 20px;'>AI Interview Preparation</div>", unsafe_allow_html=True)
         if candidate.get('job_id'):
-            st.markdown("<div style='color: white; font-size: 20px; font-weight: 600; margin-bottom: 20px;'>AI Interview Preparation</div>", unsafe_allow_html=True)
             if st.button("🤖 Generate Interview Prep", type="primary", use_container_width=True):
                 with st.spinner("Generating interview preparation..."):
                     job = get_job(candidate['job_id'])
@@ -762,23 +895,25 @@ def render_candidate_profile(candidate_id: int):
                             n.get('notes', '') for n in get_stage_notes(candidate_id) if n.get('notes')
                         ),
                     }
-                    prep = generate_interview_prep(
+                    prep = smart_generate_interview_prep(
                         candidate_data,
                         candidate.get('current_stage', 'Resume Screen')
                     )
-                    st.markdown(_clean_html(f"""
-                    <div style='background: rgba(26,35,50,0.8); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.06);
-                    border-radius: 12px; padding: 24px; margin-top: 16px;'>
-                        <div style='color: rgba(255,255,255,0.9); font-size: 14px; line-height: 1.7;'>{prep}</div>
-                    </div>
-                    """), unsafe_allow_html=True)
+                    update_candidate(candidate_id, ai_interview_prep=prep)
+                    candidate['ai_interview_prep'] = prep
+
+            # Display prep from database
+            if candidate.get('ai_interview_prep'):
+                with st.container(border=True):
+                    st.markdown(candidate['ai_interview_prep'])
+        else:
+            st.info("Assign a job to enable AI interview prep generation")
 
         st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
 
         # ============ AI INTERVIEW QUESTION GENERATION ============
+        st.markdown("<div style='color: white; font-size: 20px; font-weight: 600; margin-bottom: 20px;'>AI Interview Questions</div>", unsafe_allow_html=True)
         if candidate.get('job_id') and candidate.get('resume_text'):
-            st.markdown("<div style='color: white; font-size: 20px; font-weight: 600; margin-bottom: 20px;'>AI Interview Questions</div>", unsafe_allow_html=True)
-
             q_col1, q_col2 = st.columns([2, 1])
             with q_col1:
                 question_stage = st.selectbox(
@@ -808,14 +943,23 @@ def render_candidate_profile(candidate_id: int):
                         previous_feedback=previous_notes_text or None,
                         num_questions=num_questions
                     )
-                    st.session_state['generated_questions'] = result
-                    st.session_state['generated_questions_stage'] = question_stage
-                    st.session_state['generated_questions_job_id'] = candidate['job_id']
+                    # Save to database with stage info
+                    result['_stage'] = question_stage
+                    update_candidate(candidate_id, ai_interview_questions=json.dumps(result))
+                    candidate['ai_interview_questions'] = json.dumps(result)
 
-            # Display generated questions
-            if st.session_state.get('generated_questions') and st.session_state.get('generated_questions_job_id') == candidate.get('job_id'):
-                gen_result = st.session_state['generated_questions']
-                gen_stage = st.session_state.get('generated_questions_stage', 'Technical Interview')
+            # Load questions from database
+            stored_questions_raw = candidate.get('ai_interview_questions')
+            if stored_questions_raw:
+                try:
+                    gen_result = json.loads(stored_questions_raw) if isinstance(stored_questions_raw, str) else stored_questions_raw
+                except (json.JSONDecodeError, TypeError):
+                    gen_result = None
+            else:
+                gen_result = None
+
+            if gen_result:
+                gen_stage = gen_result.get('_stage', 'Technical Interview')
                 questions = gen_result.get('questions', [])
                 areas = gen_result.get('areas_to_probe', [])
                 concerns = gen_result.get('resume_concerns', [])
@@ -877,6 +1021,10 @@ def render_candidate_profile(candidate_id: int):
                         {''.join(f"<div style='color: rgba(255,255,255,0.8); font-size: 13px; line-height: 1.8; padding-left: 8px;'>&bull; {safe(c)}</div>" for c in concerns)}
                     </div>
                     """), unsafe_allow_html=True)
+        elif not candidate.get('job_id'):
+            st.info("Assign a job to enable AI question generation")
+        elif not candidate.get('resume_text'):
+            st.info("Upload a resume to enable AI question generation")
 
     # ============ TAB 4: MULTI-ROLE MATCHING ============
     with tabs[3]:

@@ -10,13 +10,15 @@ from database import (
     get_job_owners, assign_job_owner, remove_job_owner,
     get_users, USER_ROLES
 )
+from genai import smart_comparative_resume_analysis
+from comparison_view import render_comparison_view
 from auth import (
     has_permission, can_access_job, get_visible_job_ids,
     get_current_user, get_role_display_name
 )
 from views.utils import (
     get_stage_color, safe, section_header, metric_card, status_badge,
-    avatar_badge, empty_state, _clean_html
+    avatar_badge, stage_badge, empty_state, _clean_html
 )
 
 
@@ -232,7 +234,7 @@ def render_job_detail(job_id: int):
     st.divider()
 
     # Tabs for different sections
-    tab1, tab2, tab3 = st.tabs(["📊 Scoring Criteria", "👥 Job Owners", "⚙️ Settings"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Scoring Criteria", "👥 Job Owners", "⚙️ Settings", "📋 Candidate Overview & Analysis"])
 
     with tab1:
         render_scoring_criteria(job_id)
@@ -242,6 +244,142 @@ def render_job_detail(job_id: int):
 
     with tab3:
         render_job_settings(job_id)
+
+    with tab4:
+        render_candidate_analysis(job_id, job, candidates)
+
+
+def render_candidate_analysis(job_id: int, job: dict, candidates: list):
+    """Render candidate overview table and AI comparative analysis"""
+
+    # Initialize session state for head-to-head selection
+    h2h_key = f'h2h_candidates_{job_id}'
+    if h2h_key not in st.session_state:
+        st.session_state[h2h_key] = []
+
+    # If showing head-to-head comparison view, render it and return
+    if st.session_state.get(f'show_h2h_{job_id}', False) and len(st.session_state[h2h_key]) >= 2:
+        if st.button("← Back to Candidate Overview", key=f"back_h2h_{job_id}"):
+            st.session_state[f'show_h2h_{job_id}'] = False
+            st.rerun()
+        render_comparison_view(st.session_state[h2h_key])
+        return
+
+    active_candidates = [c for c in candidates if c.get('status') == 'Active']
+
+    # ============ CANDIDATE SUMMARY TABLE WITH CHECKBOXES ============
+    st.markdown("<div style='color: white; font-size: 20px; font-weight: 600; margin-bottom: 20px;'>Candidates for this Role</div>", unsafe_allow_html=True)
+
+    if not active_candidates:
+        st.markdown(empty_state("No candidates assigned", "Add candidates to this job to enable comparative analysis", icon="&#128100;"), unsafe_allow_html=True)
+        return
+
+    # Head-to-head selection bar
+    selected_ids = st.session_state[h2h_key]
+    selected_names = [c.get('name', '?') for c in active_candidates if c.get('id') in selected_ids]
+
+    h2h_bar_cols = st.columns([3, 1, 1])
+    with h2h_bar_cols[0]:
+        if selected_names:
+            st.info(f"Selected for head-to-head: **{', '.join(selected_names)}** ({len(selected_names)}/3)")
+        else:
+            st.caption("Select 2-3 candidates below for head-to-head comparison")
+    with h2h_bar_cols[1]:
+        if len(selected_ids) >= 2:
+            if st.button("Head-to-Head Compare", type="primary", use_container_width=True, key=f"h2h_btn_{job_id}"):
+                st.session_state[f'show_h2h_{job_id}'] = True
+                st.rerun()
+    with h2h_bar_cols[2]:
+        if selected_ids:
+            if st.button("Clear Selection", use_container_width=True, key=f"h2h_clear_{job_id}"):
+                st.session_state[h2h_key] = []
+                st.rerun()
+
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+    # Candidate cards with checkboxes
+    for c in active_candidates:
+        candidate_id = c.get('id')
+        score = c.get('ai_resume_score', 0) or 0
+        has_resume = bool(c.get('resume_text'))
+        score_display = f"{score:.0f}%" if score > 0 else "Not scored"
+        resume_display = "On file" if has_resume else "Missing"
+        resume_color = "#2EA043" if has_resume else "#C8102E"
+
+        row_cols = st.columns([0.5, 11.5])
+
+        with row_cols[0]:
+            is_selected = candidate_id in selected_ids
+            checked = st.checkbox("", value=is_selected, key=f"h2h_check_{job_id}_{candidate_id}", label_visibility="collapsed")
+            if checked and candidate_id not in st.session_state[h2h_key]:
+                if len(st.session_state[h2h_key]) < 3:
+                    st.session_state[h2h_key].append(candidate_id)
+                    st.rerun()
+                else:
+                    st.toast("Maximum 3 candidates for head-to-head comparison")
+            elif not checked and candidate_id in st.session_state[h2h_key]:
+                st.session_state[h2h_key].remove(candidate_id)
+                st.rerun()
+
+        with row_cols[1]:
+            st.markdown(_clean_html(f"""
+            <div style='background: rgba(26,35,50,0.6); backdrop-filter: blur(12px); border: 1px solid {"#304CB2" if is_selected else "rgba(255,255,255,0.06)"};
+            border-radius: 10px; padding: 16px; margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between;'>
+                <div style='display: flex; align-items: center; gap: 16px;'>
+                    {avatar_badge(c.get('name', 'Unknown'), subtitle=c.get('email', ''))}
+                </div>
+                <div style='display: flex; align-items: center; gap: 24px;'>
+                    <div style='text-align: center;'>
+                        <div style='color: rgba(255,255,255,0.5); font-size: 11px; text-transform: uppercase;'>Stage</div>
+                        <div>{stage_badge(c.get('current_stage', 'Unknown'))}</div>
+                    </div>
+                    <div style='text-align: center;'>
+                        <div style='color: rgba(255,255,255,0.5); font-size: 11px; text-transform: uppercase;'>AI Score</div>
+                        <div style='color: rgba(255,255,255,0.9); font-size: 15px; font-weight: 600;'>{score_display}</div>
+                    </div>
+                    <div style='text-align: center;'>
+                        <div style='color: rgba(255,255,255,0.5); font-size: 11px; text-transform: uppercase;'>Resume</div>
+                        <div style='color: {resume_color}; font-size: 13px; font-weight: 600;'>{resume_display}</div>
+                    </div>
+                </div>
+            </div>
+            """), unsafe_allow_html=True)
+
+    st.markdown("<div style='height:24px'></div>", unsafe_allow_html=True)
+
+    # ============ COMPARATIVE ANALYSIS (ALL CANDIDATES) ============
+    st.markdown("<div style='color: white; font-size: 20px; font-weight: 600; margin-bottom: 16px;'>AI Comparative Analysis — All Candidates</div>", unsafe_allow_html=True)
+
+    # Disclaimer
+    st.markdown(_clean_html("""
+    <div style='background: rgba(249,182,18,0.08); border: 1px solid rgba(249,182,18,0.3);
+    border-radius: 10px; padding: 16px; margin-bottom: 20px;'>
+        <div style='color: #F9B612; font-weight: 700; font-size: 13px; margin-bottom: 8px;'>&#9888; IMPORTANT DISCLAIMER</div>
+        <div style='color: rgba(255,255,255,0.8); font-size: 13px; line-height: 1.6;'>
+            This comparative analysis is based <b>solely on resume merit</b> relative to the job description.
+            It does <b>not</b> include interview performance, scoring criteria results, or interviewer feedback.
+            It is intended only as a side-by-side comparison to assist in initial evaluation.
+        </div>
+    </div>
+    """), unsafe_allow_html=True)
+
+    # Check eligibility
+    candidates_with_resumes = [c for c in active_candidates if c.get('resume_text')]
+
+    if len(candidates_with_resumes) < 2:
+        st.warning(f"At least 2 candidates with resumes are needed for comparative analysis. Currently {len(candidates_with_resumes)} candidate(s) have resumes.")
+    else:
+        if st.button("🤖 Generate Comparative Analysis", type="primary", use_container_width=True, key=f"comp_analysis_{job_id}"):
+            with st.spinner("Generating comparative resume analysis... This may take a moment."):
+                report = smart_comparative_resume_analysis(candidates_with_resumes, job)
+                st.session_state[f'comp_analysis_result_{job_id}'] = report
+
+    # Display stored results
+    stored_report = st.session_state.get(f'comp_analysis_result_{job_id}')
+    if stored_report:
+        st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown(stored_report)
 
 
 def render_scoring_criteria(job_id: int):

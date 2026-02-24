@@ -27,10 +27,15 @@ from database import (
     get_pipeline_stats, get_vendor_stats, get_job_stats, export_candidates_data,
     # Notification webhook functions (Feature 3)
     create_webhook, get_webhooks, get_webhook, update_webhook, delete_webhook,
-    get_notification_settings, update_notification_setting, get_notification_log
+    get_notification_settings, update_notification_setting, get_notification_log,
+    init_db, migrate_db
 )
 import database as db_module  # For notification service initialization
-from genai import smart_score_resume, smart_summarize_notes, generate_interview_prep, get_ai_backend_status, compare_candidates, smart_generate_interview_questions
+
+# Ensure schema and migrations are current on every startup
+init_db()
+migrate_db()
+from genai import smart_score_resume, smart_summarize_notes, smart_generate_interview_prep, get_ai_backend_status, compare_candidates, smart_generate_interview_questions
 from email_utils import render_template, build_email_context, send_email, validate_email
 from resume_parser import (
     parse_resume, save_resume_file, get_supported_extensions,
@@ -175,11 +180,12 @@ scorecard_token = query_params.get("token", None)
 from views.utils import premium_css
 st.markdown(premium_css(), unsafe_allow_html=True)
 
-# Session state init
+# Session state init — restore from URL query params on refresh
 if 'current_view' not in st.session_state:
-    st.session_state.current_view = 'dashboard'
+    st.session_state.current_view = query_params.get('view', 'dashboard')
 if 'selected_candidate' not in st.session_state:
-    st.session_state.selected_candidate = None
+    _cand_param = query_params.get('candidate', None)
+    st.session_state.selected_candidate = int(_cand_param) if _cand_param else None
 if 'selected_job' not in st.session_state:
     st.session_state.selected_job = None
 # Candidate comparison state
@@ -227,7 +233,10 @@ with st.sidebar:
                 if st.button(config['label'], key=f"nav_{key}", use_container_width=True):
                     st.session_state.current_view = key
                     st.session_state.selected_candidate = None
-                    # Clear scorecard token from URL when navigating
+                    # Sync navigation state to URL query params
+                    st.query_params['view'] = key
+                    if 'candidate' in st.query_params:
+                        del st.query_params['candidate']
                     if "token" in st.query_params:
                         del st.query_params["token"]
                     st.rerun()
